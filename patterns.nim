@@ -1,98 +1,117 @@
-import tables, parseutils, strtabs
+import parseutils, strtabs
 type
-  TSPatternType = enum
-    TSPNamed, TSPNamedOptional, TSPOptionalChar
-  TPattern* = object
-    original: string
-    filtered: string ## No @whatever
-    fields: TTable[int, seq[tuple[name: string, typ: TSPatternType]]]
-    required: int ## Number of TSPNamed
+  TNodeType = enum
+    TNodeText, TNodeField
+  TNode = object
+    typ: TNodeType
+    text: string
+    optional: bool
+  
+  TPattern* = seq[TNode]
 
-proc `$`*(p: TPattern): string = return p.original
-
+#/show/@id/?
 proc parsePattern*(pattern: string): TPattern =
-  template addKey(key, value: expr): stmt =
-    if not result.fields.hasKey(key):
-      result.fields.add(key, @[value])
-    else:
-      result.fields.mget(key).add(value)
-  result.required = 0
-  result.original = pattern
-  result.filtered = ""
-  result.fields = initTable[int, seq[tuple[name: string, typ: TSPatternType]]]()
+  result = @[]
+  template addNode(result: var TPattern, theT: TNodeType, theText: string,
+                   isOptional: bool): stmt =
+    block:
+      var newNode: TNode
+      newNode.typ = theT
+      newNode.text = theText
+      newNode.optional = isOptional
+      result.add(newNode)
+  
   var i = 0
-  while pattern.len() > i:
+  var text = ""
+  while i < pattern.len():
     case pattern[i]
-    of '\\':
-      if i+1 <= pattern.len-1 and pattern[i+1] in {'@', '?', '\\'}:
-        result.filtered.add(pattern[i+1])
-        inc(i, 2) # Skip \ and whatever the character is after.
-      else:
-        result.filtered.add('\\')
-        inc(i) # Skip \
-    of '?':
-      let c = result.filtered[result.filtered.len()-1]
-      result.filtered.setLen(result.filtered.len()-1) # Truncate string.
-      addKey(result.filtered.len, ($c, TSPOptionalChar))
-      inc(i) # Skip ?
     of '@':
+      # Add the stored text.
+      if text != "":
+        result.addNode(TNodeText, text, false)
+        text = ""
+      # Parse named parameter.
       inc(i) # Skip @
-      var fvar = ""
-      i += pattern.parseUntil(fvar, {'/', '?'}, i)
+      var nparam = ""
+      i += pattern.parseUntil(nparam, {'/', '?'}, i)
       var optional = pattern[i] == '?'
-      if pattern[i] == '?': inc(i) # Skip the ?
-      # Don't skip /, let it be added to filtered.
-      addKey(result.filtered.len, 
-          (fvar, if optional: TSPNamedOptional else: TSPNamed))
-      if not optional: result.required.inc()
+      result.addNode(TNodeField, nparam, optional)
+      if pattern[i] == '?': inc(i) # Only skip ?. / should not be skipped.
+    of '?':
+      var optionalChar = text[text.len-1]
+      setLen(text, text.len-1) # Truncate ``text``.
+      # Add the stored text.
+      if text != "":
+        result.addNode(TNodeText, text, false)
+        text = ""
+      # Add optional char.
+      inc(i) # Skip ?
+      result.addNode(TNodeText, $optionalChar, true)
+    of '\\':
+      inc i # Skip \
+      if pattern[i] notin {'?', '@', '\\'}:
+        raise newException(EInvalidValue, 
+                "This character does not require escaping: " & pattern[i])
+      text.add(pattern[i])
+      inc i # Skip ``pattern[i]``
+      
+      
+      
     else:
-      result.filtered.add(pattern[i])
+      text.add(pattern[i])
       inc(i)
+  
+  if text != "":
+    result.addNode(TNodeText, text, false)
+
+proc findNextText(pattern: TPattern, i: int, toNode: var TNode): bool =
+  ## Finds the next TNodeText in the pattern, starts looking from ``i``.
+  result = false
+  for n in i..pattern.len()-1:
+    if pattern[n].typ == TNodeText:
+      toNode = pattern[n]
+      return true
+
+proc check(n: TNode, s: string, i: int): bool =
+  let cutTo = (n.text.len-1)+i
+  if cutTo > s.len-1: return false
+  return s.substr(i, cutTo) == n.text
 
 proc match*(pattern: TPattern, s: string): tuple[matched: bool, params: PStringTable] =
-  result.params = {:}.newStringTable()
+  var i = 0 # Location in ``s``.
+
   result.matched = true
-  var i = 0
-  var fi = 0 # Filtered counter
-  var requiredDone = 0
-  var fieldsToDo = pattern.fields
+  result.params = {:}.newStringTable()
   
-  while true:
-    if s.len() <= i:
-      # Check to see if there are any more TSPNamed
-      assert(not (requiredDone > pattern.required))
-      if requiredDone < pattern.required:
-        result.matched = false
-      
-      break
-  
-    if fieldsToDo.hasKey(fi):
-      for field in fieldsToDo[fi]:
-        let (name, typ) = field
-        case typ
-        of TSPNamed, TSPNamedOptional:
-          var stopChar = '/' # The char to stop consuming at
-          if pattern.filtered.len-1 >= fi:
-            stopChar = pattern.filtered[fi]
-
-          var matchNamed = ""
-          i += s.parseUntil(matchNamed, stopChar, i)
-          result.params[name] = matchNamed
-          if typ == TSPNamed: requiredDone.inc()
-
-        of TSPOptionalChar:
-          if s[i] == name[0]:
-            inc(i) # Skip this optional char.
-      
-      fieldsToDo.del(fi)
-    else:
-      if not (fi <= pattern.filtered.len()-1 and pattern.filtered[fi] == s[i]):
+  for ncount, node in pattern:
+    case node.typ
+    of TNodeText:
+      if node.optional:
+        if check(node, s, i):
+          inc(i, node.text.len) # Skip over this optional character.
+        else:
+          # If it's not there, we have nothing to do. It's optional after all.
+      else:
+        if check(node, s, i):
+          inc(i, node.text.len) # Skip over this
+        else:
+          # No match.
+          result.matched = false
+          return
+    of TNodeField:
+      var nextTxtNode: TNode
+      var stopChar = '/'
+      if findNextText(pattern, ncount, nextTxtNode):
+        stopChar = nextTxtNode.text[0]
+      var matchNamed = ""
+      i += s.parseUntil(matchNamed, stopChar, i)
+      if matchNamed != "":
+        result.params[node.text] = matchNamed
+      elif matchNamed == "" and not node.optional:
         result.matched = false
         return
-      inc(i)
-      inc(fi)
 
-  if pattern.filtered.len != fi:
+  if s.len != i:
     result.matched = false
 
 when isMainModule:
@@ -100,12 +119,17 @@ when isMainModule:
   doAssert match(f, "/show/12/test/hallo/").matched
   doAssert match(f, "/show/2131726/test/jjjuuwąąss").matched
   doAssert(not match(f, "/").matched)
-  doAssert(match(f, "/show//test//").matched)
+  doAssert(not match(f, "/show//test//").matched)
+  doAssert(match(f, "/show/asd/test//").matched)
   doAssert(not match(f, "/show/asd/asd/test/jjj/").matched)
   doAssert(match(f, "/show/@łę¶ŧ←/test/asd/").params["id"] == "@łę¶ŧ←")
   
-  echo(f.original)
-  echo(f.filtered)
-  echo(f.fields)
-  let m = match(f, "/show/12/test/hallo/")
-  echo(m)
+  let f2 = parsePattern("/test42/somefile.?@ext?/?")
+  doAssert(match(f2, "/test42/somefile/").params["ext"] == "")
+  doAssert(match(f2, "/test42/somefile.txt").params["ext"] == "txt")
+  doAssert(match(f2, "/test42/somefile.txt/").params["ext"] == "txt")
+  
+  let f3 = parsePattern(r"/test32/\@\\\??")
+  doAssert(match(f3, r"/test32/@\").matched)
+  doAssert(not match(f3, r"/test32/@\\").matched)
+  doAssert(match(f3, r"/test32/@\?").matched)
