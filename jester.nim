@@ -41,7 +41,7 @@ type
     Http502 = "502 Bad Gateway"
 
   TCallbackAction = enum
-    TCActionSend, TCActionPass, TCActionHalt
+    TCActionSend, TCActionPass, TCActionHalt, TCActionNothing
 
 const jesterVer = "0.1.0"
 
@@ -63,6 +63,19 @@ when not defined(writeStatusContent):
 
 proc `$`*(r: TRegexMatch): string = return r.original
 
+template guessAction(): stmt =
+  if action == TCActionNothing:
+    if content != "":
+      action = TCActionSend
+      code = Http200
+      if not headers.hasKey("Content-Type"):
+        headers["Content-Type"] = "text/html"
+    else:
+      action = TCActionSend
+      code = Http502
+      headers = {"Content-Type": "text/html"}.newStringTable
+      content = error($Http502, jesterVer)
+
 proc handleHTTPRequest(client: TSocket, path, query: string) =
   var params = {:}.newStringTable()
   echo("Got request " & $params & " path = " & path, "  query = ", query)
@@ -73,7 +86,8 @@ proc handleHTTPRequest(client: TSocket, path, query: string) =
     echo("[Warning] Incorrect query. Got: ", query)
 
   template routeReq(): stmt =
-    let (action, code, headers, content) = route.c(req)
+    var (action, code, headers, content) = route.c(req)
+    guessAction()
     case action
     of TCActionSend:
       client.writeStatusContent($code, content, headers)
@@ -85,6 +99,8 @@ proc handleHTTPRequest(client: TSocket, path, query: string) =
       matched = true
       client.writeStatusContent($code, content, headers)
       break
+    of TCActionNothing:
+      assert(false)
 
   var matched = false
   var req: TRequest
@@ -131,14 +147,20 @@ proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
 
 template setDefaultResp(): stmt =
-  bind error, jesterVer, TCActionSend
-  result = (TCActionSend, Http502, {"Content-Type": "text/html"}.newStringTable, 
-            error($Http502, jesterVer))
+  bind TCActionNothing
+  
+  #if result[0] == TCActionNothing:
+  #  result = (TCActionSend, Http502, {"Content-Type": "text/html"}.newStringTable, 
+  #            error($Http502, jesterVer))
+  result[0] = TCActionNothing
+  result[1] = Http200
+  result[2] = {:}.newStringTable
+  result[3] = ""
 
 template get*(path: string, body: stmt): stmt =
   block:
     bind j, PMatch, TMatch, TRequest, TCallbackRet, escapeRe, parsePattern, 
-         setDefaultResp
+         setDefaultResp, TCActionNothing
     var match: PMatch
     new(match)
     match.typ = MSpecial
@@ -150,7 +172,7 @@ template get*(path: string, body: stmt): stmt =
 
 template getRe*(rePath: TRegexMatch, body: stmt): stmt =
   block:
-    bind j, PMatch, TRequest, TCallbackRet, setDefaultResp
+    bind j, PMatch, TRequest, TCallbackRet, setDefaultResp, TCActionNothing
     var match: PMatch
     new(match)
     match.typ = MRegex
@@ -162,13 +184,48 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt =
 template resp*(code: THttpCode, 
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
+  bind TCActionSend, newStringTable
   return (TCActionSend, v[0], v[1].newStringTable, v[2])
 
 template resp*(content: string): stmt =
-  ## Responds 
-  bind TCActionSend
+  ## Responds with ``content``. ``Http200`` is the status code and ``text/html``
+  ## is the Content-Type.
+  bind TCActionSend, newStringTable
   return (TCActionSend, Http200,
           {"Content-Type": "text/html"}.newStringTable, content)
+
+template `body=`*(content: string): stmt =
+  bind TCActionSend
+  result[0] = TCActionSend
+  result[1] = Http200
+  result[2]["Content-Type"] = "text/html"
+  result[3] = content
+
+template body*(): expr =
+  # Unfortunately I cannot explicitly set meta data like I can in `body=` :\
+  # This means that it is up to guessAction to infer this.
+  result[3]
+
+template `headers=`*(theh: openarray[tuple[key, value: string]]): stmt =
+  bind TCActionSend, newStringTable
+  result[0] = TCActionSend
+  result[1] = Http200
+  result[2] = theh.newStringTable
+
+template headers*(): expr =
+  result[2]
+
+template `status=`*(sta: THttpCode): stmt =
+  bind TCActionSend
+  result[0] = TCActionSend
+  result[1] = sta
+
+template status*(): expr =
+  result[1]
+
+template redirect*(url: string): stmt =
+  bind TCActionSend, newStringTable
+  return (TCActionSend, Http303, {"Location": url}.newStringTable, "")
 
 template pass*(): stmt =
   bind TCActionPass
@@ -177,7 +234,7 @@ template pass*(): stmt =
 template halt*(code: THttpCode,
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
-  bind TCActionHalt
+  bind TCActionHalt, newStringTable
   return (TCActionHalt, code, headers.newStringTable, content)
 
 template halt*(): stmt =
