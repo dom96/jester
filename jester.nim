@@ -1,4 +1,4 @@
-import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils
+import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils, uri
 
 import patterns, errorpages, utils
 
@@ -7,7 +7,7 @@ from cgi import decodeData, ECgi
 type
   TCallbackRet = tuple[action: TCallbackAction, code: THttpCode, 
                        headers: PStringTable, content: string]
-  TCallback = proc (request: TRequest): TCallbackRet
+  TCallback = proc (request: var TRequest): TCallbackRet
 
   TJester = object
     s: TServer
@@ -40,6 +40,11 @@ type
                                   ## You're probably looking for ``formData`` instead.
     headers*: PStringTable        ## Headers received with the request.
     formData*: TMultiData         ## Form data; only present for multipart/form-data
+    port*: int
+    host*: string
+    scriptName*: string
+    pathInfo*: string
+    secure*: bool
 
   THttpCode* = enum
     Http200 = "200 OK",
@@ -136,7 +141,11 @@ proc handleHTTPRequest(s: TServer) =
     parseUrlQuery(s.body, req.params)
   elif req.headers["Content-Type"].startsWith("multipart/form-data"):
     req.formData = parseMPFD(req.headers["Content-Type"], s.body)
-  
+  req.port = 80
+  req.host = req.headers["HOST"]
+  req.scriptName = ""
+  req.pathInfo = s.path
+  req.secure = false
   for route in j.routes:
     if $route.meth == s.reqMethod:
       case route.m.typ
@@ -187,6 +196,11 @@ template setDefaultResp(): stmt =
   result[3] = ""
 
 template get*(path: string, body: stmt): stmt =
+  ## Route handler for GET requests.
+  ##
+  ## ``path`` may contain named parameters, for example ``@param``. These
+  ## can then be accessed by ``@"param"`` in the request body.
+
   # TODO: Refactor out into a template once bug #110 is fixed for the compiler.
   block:
     bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
@@ -196,7 +210,7 @@ template get*(path: string, body: stmt): stmt =
     match.typ = MSpecial
     match.pattern = parsePattern(path)
 
-    j.routes.add((HttpGet, match, (proc (request: TRequest): TCallbackRet =
+    j.routes.add((HttpGet, match, (proc (request: var TRequest): TCallbackRet =
                                      setDefaultResp()
                                      body)))
 
@@ -207,7 +221,7 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt =
     new(match)
     match.typ = MRegex
     match.regexMatch = rePath
-    j.routes.add((HttpGet, match, (proc (request: TRequest): TCallbackRet =
+    j.routes.add((HttpGet, match, (proc (request: var TRequest): TCallbackRet =
                                      setDefaultResp()
                                      body)))
 
@@ -220,24 +234,27 @@ template post*(path: string, body: stmt): stmt =
     match.typ = MSpecial
     match.pattern = parsePattern(path)
 
-    j.routes.add((HttpPost, match, (proc (request: TRequest): TCallbackRet =
+    j.routes.add((HttpPost, match, (proc (request: var TRequest): TCallbackRet =
                                      setDefaultResp()
                                      body)))
 
 template resp*(code: THttpCode, 
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
+  ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend, newStringTable
-  return (TCActionSend, v[0], v[1].newStringTable, v[2])
+  result = (TCActionSend, v[0], v[1].newStringTable, v[2])
 
 template resp*(content: string): stmt =
-  ## Responds with ``content``. ``Http200`` is the status code and ``text/html``
-  ## is the Content-Type.
+  ## Sets ``content`` as the response; ``Http200`` as the status code 
+  ## and ``text/html`` as the Content-Type.
   bind TCActionSend, newStringTable
-  return (TCActionSend, Http200,
-          {"Content-Type": "text/html"}.newStringTable, content)
+  result = (TCActionSend, Http200,
+              {"Content-Type": "text/html"}.newStringTable, content)
 
 template `body=`*(content: string): stmt =
+  ## Allows you to set the body of the response to ``content``. This is the
+  ## same as ``resp``.
   bind TCActionSend
   result[0] = TCActionSend
   result[1] = Http200
@@ -250,6 +267,7 @@ template body*(): expr =
   result[3]
 
 template `headers=`*(theh: openarray[tuple[key, value: string]]): stmt =
+  ## Allows you to set the response headers.
   bind TCActionSend, newStringTable
   result[0] = TCActionSend
   result[1] = Http200
@@ -259,6 +277,7 @@ template headers*(): expr =
   result[2]
 
 template `status=`*(sta: THttpCode): stmt =
+  ## Allows you to set the response status.
   bind TCActionSend
   result[0] = TCActionSend
   result[1] = sta
@@ -267,6 +286,7 @@ template status*(): expr =
   result[1]
 
 template redirect*(url: string): stmt =
+  ## Redirects to ``url``. Returns from this request handler immediatelly.
   bind TCActionSend, newStringTable
   return (TCActionSend, Http303, {"Location": url}.newStringTable, "")
 
@@ -282,22 +302,24 @@ template cond*(condition: bool): stmt =
 template halt*(code: THttpCode,
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
+  ## Immediatelly replies with the specified request.
   bind TCActionHalt, newStringTable
   return (TCActionHalt, code, headers.newStringTable, content)
 
 template halt*(): stmt =
+  ## Halts the execution of this request immediatelly. Returns a 404.
   bind error, jesterVer
-  halt(Http404, {:}, error($Http404, jesterVer))
+  halt(Http404, {"Content-Type": "text/html"}, error($Http404, jesterVer))
 
 template halt*(code: THttpCode): stmt = 
   bind error, jesterVer
-  halt(code, {:}, error($code, jesterVer))
+  halt(code, {"Content-Type": "text/html"}, error($code, jesterVer))
 
 template halt*(content: string): stmt =
-  halt(Http404, {:}, content)
+  halt(Http404, {"Content-Type": "text/html"}, content)
 
 template halt*(code: THttpCode, content: string): stmt =
-  halt(code, {:}, content)
+  halt(code, {"Content-Type": "text/html"}, content)
 
 template `@`*(s: string): expr =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be
@@ -314,3 +336,23 @@ proc `staticDir=`*(dir: string) =
   ## 
   ## (``./public`` is not included in the final URL)
   j.options.staticDir = dir
+
+proc uriProc*(request: TRequest, address = "", absolute = true, addScriptName = true): string =
+  # Check if address already starts with scheme://
+  var url = TUrl("")
+  if address.find("://") != -1: return address
+  if absolute:
+    url.add(TUrl("http$1://" % [if request.secure: "s" else: ""]))
+    if request.port != (if request.secure: 443 else: 80):
+      url.add(TUrl(request.host & ":" & $request.port))
+    else:
+      url.add(TUrl(request.host))
+      
+  if addScriptName: url.add(TUrl(request.scriptName))
+  url.add(if address != "": address.TUrl else: request.pathInfo.TUrl)
+  return string(url)
+  
+template uri*(address = "", absolute = true, addScriptName = true): expr =
+  request.uriProc(address, absolute, addScriptName)
+  
+  
