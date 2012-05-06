@@ -1,6 +1,6 @@
-import httpserver, sockets, strtabs, re, htmlgen, tables, parseutils, os
+import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils
 
-import patterns, errorpages
+import patterns, errorpages, utils
 
 from cgi import decodeData, ECgi
 
@@ -11,7 +11,7 @@ type
 
   TJester = object
     s: TServer
-    routes*: seq[tuple[m: PMatch, c: TCallback]]
+    routes*: seq[tuple[meth: TReqMeth, m: PMatch, c: TCallback]]
     options: TOptions
 
   TOptions = object
@@ -29,16 +29,26 @@ type
       regexMatch*: TRegexMatch
     of MSpecial:
       pattern*: TPattern
-    
+  
+  TMultiData* = TTable[string, tuple[fields: PStringTable, body: string]]
+  
   TRequest* = object
-    params*: PStringTable
-    matches*: array[0..9, string]
+    params*: PStringTable         ## Parameters from the pattern, but also the
+                                  ## query string.
+    matches*: array[0..9, string] ## Matches if this is a regex pattern.
+    body*: string                 ## Body of the request, only for POST.
+                                  ## You're probably looking for ``formData`` instead.
+    headers*: PStringTable        ## Headers received with the request.
+    formData*: TMultiData         ## Form data; only present for multipart/form-data
 
   THttpCode* = enum
     Http200 = "200 OK",
     Http303 = "303 Moved",
     Http404 = "404 Not Found",
     Http502 = "502 Bad Gateway"
+
+  TReqMeth = enum
+    HttpGet = "GET", HttpPost = "POST"
 
   TCallbackAction = enum
     TCActionSend, TCActionPass, TCActionHalt, TCActionNothing
@@ -76,28 +86,43 @@ template guessAction(): stmt =
       headers = {"Content-Type": "text/html"}.newStringTable
       content = error($Http502, jesterVer)
 
-proc handleHTTPRequest(client: TSocket, path, query: string) =
+proc handleHTTPRequest(s: TServer) =
   var params = {:}.newStringTable()
-  echo("Got request " & $params & " path = " & path, "  query = ", query)
+  echo("Got request " & $params & " path = " & s.path, "  query = ", s.query)
   try:
-    for key, val in cgi.decodeData(query):
+    for key, val in cgi.decodeData(s.query):
       params[key] = val
   except ECgi:
-    echo("[Warning] Incorrect query. Got: ", query)
+    echo("[Warning] Incorrect query. Got: ", s.query)
 
   template routeReq(): stmt =
-    var (action, code, headers, content) = route.c(req)
+    var (action, code, headers, content) = (TCActionNothing, http200,
+                                            {:}.newStringTable, "")
+    try:
+      let (a, c, h, b) = route.c(req)
+      action = a
+      code = c
+      headers = h
+      content = b
+    except:
+      # Handle any errors by showing them in the browser.
+      s.client.writeStatusContent($Http502, 
+          routeException(getCurrentExceptionMsg(), jesterVer), 
+          {"Content-Type": "text/html"}.newStringTable)
+      matched = true
+      break
+    
     guessAction()
     case action
     of TCActionSend:
-      client.writeStatusContent($code, content, headers)
+      s.client.writeStatusContent($code, content, headers)
       matched = true
       break
     of TCActionPass:
       matched = false
     of TCActionHalt:
       matched = true
-      client.writeStatusContent($code, content, headers)
+      s.client.writeStatusContent($code, content, headers)
       break
     of TCActionNothing:
       assert(false)
@@ -105,35 +130,43 @@ proc handleHTTPRequest(client: TSocket, path, query: string) =
   var matched = false
   var req: TRequest
   req.params = params
+  req.body = s.body
+  req.headers = s.headers
+  if req.headers["Content-Type"] == "application/x-www-form-urlencoded":
+    parseUrlQuery(s.body, req.params)
+  elif req.headers["Content-Type"].startsWith("multipart/form-data"):
+    req.formData = parseMPFD(req.headers["Content-Type"], s.body)
+  
   for route in j.routes:
-    case route.m.typ
-    of MRegex:
-      #echo(path, " =~ ", route.m.regexMatch)
-      if path =~ route.m.regexMatch.compiled:
-        req.matches = matches
-        routeReq()
+    if $route.meth == s.reqMethod:
+      case route.m.typ
+      of MRegex:
+        #echo(path, " =~ ", route.m.regexMatch)
+        if s.path =~ route.m.regexMatch.compiled:
+          req.matches = matches
+          routeReq()
 
-    of MSpecial:
-      let (match, params) = route.m.pattern.match(path)
-      #echo(path, " =@ ", route.m.pattern, " | ", match, " ", params)
-      if match:
-        for key, val in params:
-          req.params[key] = val
-        routeReq()
+      of MSpecial:
+        let (match, params) = route.m.pattern.match(s.path)
+        #echo(path, " =@ ", route.m.pattern, " | ", match, " ", params)
+        if match:
+          for key, val in params:
+            req.params[key] = val
+          routeReq()
 
   if not matched:
     # Find static file.
     # TODO: Caching.
-    if existsFile(j.options.staticDir / path):
-      var file = readFile(j.options.staticDir / path)
+    if existsFile(j.options.staticDir / s.path):
+      var file = readFile(j.options.staticDir / s.path)
       # TODO: Mimetypes
-      client.writeStatusContent($Http200, file, 
-                               {"Content-type": "text/plain"}.newStringTable)
+      s.client.writeStatusContent($Http200, file, 
+                                  {"Content-type": "text/plain"}.newStringTable)
     else:
-      client.writeStatusContent($Http404, error($Http404, jesterVer), 
-                                {"Content-type": "text/html"}.newStringTable)
+      s.client.writeStatusContent($Http404, error($Http404, jesterVer), 
+                                  {"Content-type": "text/html"}.newStringTable)
   
-  client.close()
+  s.client.close()
   
 proc run*(port = TPort(5000), http = true) =
   if http:
@@ -141,45 +174,55 @@ proc run*(port = TPort(5000), http = true) =
     echo("Jester is making jokes at localhost:" & $port)
     while true:
       j.s.next()
-      handleHTTPRequest(j.s.client, j.s.path, j.s.query)
+      handleHTTPRequest(j.s)
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
 
 template setDefaultResp(): stmt =
-  bind TCActionNothing
-  
-  #if result[0] == TCActionNothing:
-  #  result = (TCActionSend, Http502, {"Content-Type": "text/html"}.newStringTable, 
-  #            error($Http502, jesterVer))
+  bind TCActionNothing, newStringTable
   result[0] = TCActionNothing
   result[1] = Http200
   result[2] = {:}.newStringTable
   result[3] = ""
 
 template get*(path: string, body: stmt): stmt =
+  # TODO: Refactor out into a template once bug #110 is fixed for the compiler.
   block:
-    bind j, PMatch, TMatch, TRequest, TCallbackRet, escapeRe, parsePattern, 
-         setDefaultResp, TCActionNothing
+    bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
+         setDefaultResp, HttpGet
     var match: PMatch
     new(match)
     match.typ = MSpecial
     match.pattern = parsePattern(path)
 
-    j.routes.add((match, (proc (request: TRequest): TCallbackRet =
-                            setDefaultResp()
-                            body)))
+    j.routes.add((HttpGet, match, (proc (request: TRequest): TCallbackRet =
+                                     setDefaultResp()
+                                     body)))
 
 template getRe*(rePath: TRegexMatch, body: stmt): stmt =
   block:
-    bind j, PMatch, TRequest, TCallbackRet, setDefaultResp, TCActionNothing
+    bind j, PMatch, TRequest, TCallbackRet, setDefaultResp, HttpGet
     var match: PMatch
     new(match)
     match.typ = MRegex
     match.regexMatch = rePath
-    j.routes.add((match, (proc (request: TRequest): TCallbackRet =
-                            setDefaultResp()
-                            body)))
+    j.routes.add((HttpGet, match, (proc (request: TRequest): TCallbackRet =
+                                     setDefaultResp()
+                                     body)))
+
+template post*(path: string, body: stmt): stmt =
+  block:
+    bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
+         setDefaultResp, HttpPost
+    var match: PMatch
+    new(match)
+    match.typ = MSpecial
+    match.pattern = parsePattern(path)
+
+    j.routes.add((HttpPost, match, (proc (request: TRequest): TCallbackRet =
+                                     setDefaultResp()
+                                     body)))
 
 template resp*(code: THttpCode, 
                headers: openarray[tuple[key, value: string]],
@@ -228,8 +271,13 @@ template redirect*(url: string): stmt =
   return (TCActionSend, Http303, {"Location": url}.newStringTable, "")
 
 template pass*(): stmt =
+  ## Skips this request handler.
   bind TCActionPass
   return (TCActionPass, Http404, nil, "")
+
+template cond*(condition: bool): stmt =
+  ## If ``condition`` is ``False`` then ``pass`` will be called.
+  if not condition: pass()
 
 template halt*(code: THttpCode,
                headers: openarray[tuple[key, value: string]],

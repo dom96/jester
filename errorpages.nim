@@ -7,3 +7,11 @@ proc error*(err, jesterVer: string): string =
                     style = "text-align: center;"
                ),
                xmlns="http://www.w3.org/1999/xhtml")
+
+proc routeException*(error: string, jesterVer: string): string =
+  return html(head(title("Jester route exception")),
+              body(
+                h1("An error has occured in one of your routes."),
+                p(b("Detail: "), error)
+              ),
+             xmlns="http://www.w3.org/1999/xhtml")
