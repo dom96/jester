@@ -195,24 +195,28 @@ template setDefaultResp(): stmt =
   result[2] = {:}.newStringTable
   result[3] = ""
 
+template matchAddPattern(meth: THttpCode, path: string,
+                         body: stmt): stmt {.immediate.} =
+  block:
+    bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
+         setDefaultResp
+    var match: PMatch
+    new(match)
+    match.typ = MSpecial
+    match.pattern = parsePattern(path)
+
+    j.routes.add((meth, match, (proc (request: var TRequest): TCallbackRet =
+                                     setDefaultResp()
+                                     body)))
+
 template get*(path: string, body: stmt): stmt =
   ## Route handler for GET requests.
   ##
   ## ``path`` may contain named parameters, for example ``@param``. These
   ## can then be accessed by ``@"param"`` in the request body.
 
-  # TODO: Refactor out into a template once bug #110 is fixed for the compiler.
-  block:
-    bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
-         setDefaultResp, HttpGet
-    var match: PMatch
-    new(match)
-    match.typ = MSpecial
-    match.pattern = parsePattern(path)
-
-    j.routes.add((HttpGet, match, (proc (request: var TRequest): TCallbackRet =
-                                     setDefaultResp()
-                                     body)))
+  bind HttpGet, matchAddPattern
+  matchAddPattern(HttpGet, path, body)
 
 template getRe*(rePath: TRegexMatch, body: stmt): stmt =
   block:
@@ -226,17 +230,8 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt =
                                      body)))
 
 template post*(path: string, body: stmt): stmt =
-  block:
-    bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
-         setDefaultResp, HttpPost
-    var match: PMatch
-    new(match)
-    match.typ = MSpecial
-    match.pattern = parsePattern(path)
-
-    j.routes.add((HttpPost, match, (proc (request: var TRequest): TCallbackRet =
-                                     setDefaultResp()
-                                     body)))
+  bind HttpPost, matchAddPattern
+  matchAddPattern(HttpPost, path, body)
 
 template resp*(code: THttpCode, 
                headers: openarray[tuple[key, value: string]],
