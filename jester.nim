@@ -1,5 +1,5 @@
 import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi
+        scgi, cookies, times
 
 import patterns, errorpages, utils
 
@@ -49,6 +49,7 @@ type
     pathInfo*: string             ## This is ``.path`` without ``.appName``.
     secure*: bool
     path*: string                 ## Path of request.
+    cookies*: PStringTable        ## Cookies from the browser.
 
   THttpCode* = enum
     Http200 = "200 OK",
@@ -141,6 +142,9 @@ proc createReq(path, body: string, headers,
   result.pathInfo = path.stripAppName(result.appName)
   result.path = path
   result.secure = false
+  if result.headers["Cookie"] != "":
+    result.cookies = parseCookies(result.headers["Cookie"])
+  else: result.cookies = newStringTable()
 
 template routeReq(): stmt =
   var (action, code, headers, content) = (TCActionNothing, http200,
@@ -297,12 +301,24 @@ template resp*(code: THttpCode,
   bind TCActionSend, newStringTable
   result = (TCActionSend, v[0], v[1].newStringTable, v[2])
 
-template resp*(content: string): stmt =
+template resp*(content: string, contentType = "text/html"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code 
-  ## and ``text/html`` as the Content-Type.
+  ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable
-  result = (TCActionSend, Http200,
-              {"Content-Type": "text/html"}.newStringTable, content)
+  result[0] = TCActionSend
+  result[1] = Http200
+  result[2]["Content-Type"] = contentType
+  result[3] = content
+
+template resp*(code: THttpCode, content: string,
+               contentType = "text/html"): stmt =
+  ## Sets ``content`` as the response; ``code`` as the status code 
+  ## and ``contentType`` as the Content-Type.
+  bind TCActionSend, newStringTable
+  result[0] = TCActionSend
+  result[1] = code
+  result[2]["Content-Type"] = contentType
+  result[3] = content
 
 template `body=`*(content: string): stmt =
   ## Allows you to set the body of the response to ``content``. This is the
@@ -315,7 +331,8 @@ template `body=`*(content: string): stmt =
 
 template body*(): expr =
   # Unfortunately I cannot explicitly set meta data like I can in `body=` :\
-  # This means that it is up to guessAction to infer this.
+  # This means that it is up to guessAction to infer this if the user adds
+  # something to the body for example.
   result[3]
 
 template `headers=`*(theh: openarray[tuple[key, value: string]]): stmt =
@@ -338,7 +355,7 @@ template status*(): expr =
   result[1]
 
 template redirect*(url: string): stmt =
-  ## Redirects to ``url``. Returns from this request handler immediatelly.
+  ## Redirects to ``url``. Returns from this request handler immediately.
   bind TCActionSend, newStringTable
   return (TCActionSend, Http303, {"Location": url}.newStringTable, "")
 
@@ -354,12 +371,13 @@ template cond*(condition: bool): stmt =
 template halt*(code: THttpCode,
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
-  ## Immediatelly replies with the specified request.
+  ## Immediately replies with the specified request.
   bind TCActionSend, newStringTable
   return (TCActionSend, code, headers.newStringTable, content)
 
 template halt*(): stmt =
-  ## Halts the execution of this request immediatelly. Returns a 404.
+  ## Halts the execution of this request immediately. Returns a 404.
+  ## All previously set values are **discarded**.
   bind error, jesterVer
   halt(Http404, {"Content-Type": "text/html"}, error($Http404, jesterVer))
 
@@ -408,4 +426,20 @@ proc uriProc*(request: TRequest, address = "", absolute = true, addScriptName = 
   
 template uri*(address = "", absolute = true, addScriptName = true): expr =
   request.uriProc(address, absolute, addScriptName)
-  
+
+proc daysForward*(days: int): TTimeInfo =
+  ## Returns a TTimeInfo object referring to the current time plus ``days``.
+  var tim = TTime(int(getTime()) + days * (60 * 60 * 24))
+  return tim.getGMTime()
+
+template setCookie*(name, value: string, expires: TTimeInfo): stmt =
+  ## Creates a cookie which stores ``value`` under ``name``.
+  bind setCookie
+  if result[2].hasKey("Set-Cookie"):
+    # A wee bit of a hack here. Multiple Set-Cookie headers are allowed.
+    result[2].mget("Set-Cookie").add("\c\L" &
+        setCookie(name, value, expires, noName = false))
+  else:  
+    result[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
+
+

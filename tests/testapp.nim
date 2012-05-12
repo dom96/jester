@@ -99,6 +99,17 @@ get "/showreq":
   body.add request.appName & "<br/>"
   body.add request.pathInfo 
 
+get "/session":
+  echo(request.headers)
+  resp($request.cookies)
+
+get "/session/@value":
+  setCookie("test", @"value", daysForward(5))
+  setCookie("test23", @"value", daysForward(5))
+  setCookie("test13", @"value", daysForward(5))
+  setCookie("qerty", @"value", daysForward(5))  
+  resp($request.cookies)
+
 var http = true
 if paramCount() > 0:
   if paramStr(1) == "scgi":

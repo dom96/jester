@@ -2,8 +2,6 @@
 
 ## Important
 
-* Sessions (cookie handling)
-  * Dealing with date/time.
 * Mime types
 * More information for the TRequest object.
   * request.accepts "text/xml"
