@@ -41,7 +41,7 @@ type
     matches*: array[0..9, string] ## Matches if this is a regex pattern.
     body*: string                 ## Body of the request, only for POST.
                                   ## You're probably looking for ``formData`` instead.
-    headers*: PStringTable        ## Headers received with the request.
+    headers*: PStringTable        ## Headers received with the request. Retrieving these is case insensitive.
     formData*: TMultiData         ## Form data; only present for multipart/form-data
     port*: int
     host*: string
@@ -107,22 +107,35 @@ proc stripAppName(path, appName: string): string =
     else:
       raise newException(EInvalidValue, "Expected script name at beginning of path.")
 
-proc createReq(path, body: string, headers, params: PStringTable): TRequest =
+proc renameHeaders(headers: PStringTable): PStringTable =
+  ## Renames headers beginning with HTTP_.
+  ## For example, HTTP_CONTENT_TYPE becomes Content-Type.
+  ## Removes any headers that don't begin with HTTP_
+  ## This should only be used for SCGI.
+  result = newStringTable(modeCaseInsensitive)
+  for key, val in headers:
+    if key.startsWith("HTTP_"):
+      result[key[5 .. -1].replace('_', '-').toLower()] = val
+    else:
+      # TODO: Should scgi-specific headers be preserved?
+      #result[key] = val
+
+proc createReq(path, body: string, headers, 
+               params: PStringTable, isHttp: bool): TRequest =
   result.params = params
   result.body = body
-  result.headers = headers
+  if isHttp:
+    result.headers = headers
+  else:
+    result.headers = renameHeaders(headers)
   if result.headers["Content-Type"] == "application/x-www-form-urlencoded":
     parseUrlQuery(body, result.params)
   elif result.headers["Content-Type"].startsWith("multipart/form-data"):
     result.formData = parseMPFD(result.headers["Content-Type"], body)
-  if result.headers.hasKey("SERVER_PORT"): 
+  if result.headers["SERVER_PORT"] != "": 
     result.port = result.headers["SERVER_PORT"].parseInt
   else:
     result.port = 80
-  if result.headers.hasKey("HOST"):
-    result.host = result.headers["HOST"]
-  else:
-    result.host = result.headers["HTTP_HOST"]
   result.host = result.headers["HOST"]
   result.appName = j.options.appName
   result.pathInfo = path.stripAppName(result.appName)
@@ -142,14 +155,14 @@ template routeReq(): stmt =
     # Handle any errors by showing them in the browser.
     client.statusContent($Http502, 
         routeException(getCurrentExceptionMsg(), jesterVer), 
-        {"Content-Type": "text/html"}.newStringTable, http)
+        {"Content-Type": "text/html"}.newStringTable, isHttp)
     matched = true
     break
   
   guessAction()
   case action
   of TCActionSend:
-    client.statusContent($code, content, headers, http)
+    client.statusContent($code, content, headers, isHttp)
     matched = true
     break
   of TCActionPass:
@@ -158,7 +171,7 @@ template routeReq(): stmt =
     assert(false)
 
 proc handleRequest(client: TSocket, path, query, body,
-                   reqMethod: string, headers: PStringTable, http: bool) =
+                   reqMethod: string, headers: PStringTable, isHttp: bool) =
   var params = {:}.newStringTable()
   try:
     for key, val in cgi.decodeData(query):
@@ -169,14 +182,14 @@ proc handleRequest(client: TSocket, path, query, body,
   var matched = false
   var req: TRequest
   try:
-    req = createReq(path, body, headers, params)
+    req = createReq(path, body, headers, params, isHttp)
   except EInvalidValue:
-    if http:
+    if isHttp:
       client.close()
       return
     else:
       raise
-
+  
   echo(reqMethod, " ", req.pathInfo)
   for route in j.routes:
     if $route.meth == reqMethod:
@@ -200,10 +213,10 @@ proc handleRequest(client: TSocket, path, query, body,
       var file = readFile(j.options.staticDir / req.pathInfo)
       # TODO: Mimetypes
       client.statusContent($Http200, file, 
-                          {"Content-type": "text/plain"}.newStringTable, http)
+                          {"Content-type": "text/plain"}.newStringTable, isHttp)
     else:
       client.statusContent($Http404, error($Http404, jesterVer), 
-                          {"Content-type": "text/html"}.newStringTable, http)
+                          {"Content-type": "text/html"}.newStringTable, isHttp)
 
   client.close()
 
@@ -211,7 +224,6 @@ proc handleHTTPRequest(s: TServer) =
   handleRequest(s.client, s.path, s.query, s.body, s.reqMethod, s.headers, true)
 
 proc handleSCGIRequest(s: TScgiState) =
-  echo(s.headers)
   handleRequest(s.client, s.headers["DOCUMENT_URI"], s.headers["QUERY_STRING"], 
                 s.input, s.headers["REQUEST_METHOD"], s.headers, false)
 
@@ -387,7 +399,9 @@ proc uriProc*(request: TRequest, address = "", absolute = true, addScriptName = 
       url.add(TUrl(request.host & ":" & $request.port))
     else:
       url.add(TUrl(request.host))
-      
+  else:
+    url.add(TUrl("/"))
+
   if addScriptName: url.add(TUrl(request.appName))
   url.add(if address != "": address.TUrl else: request.pathInfo.TUrl)
   return string(url)
