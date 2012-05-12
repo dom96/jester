@@ -16,6 +16,7 @@ type
 
   TOptions = object
     staticDir: string # By default ./public
+    appName: string
 
   TRegexMatch = tuple[compiled: TRegex, original: string]
   
@@ -42,9 +43,10 @@ type
     formData*: TMultiData         ## Form data; only present for multipart/form-data
     port*: int
     host*: string
-    scriptName*: string
-    pathInfo*: string
+    appName*: string              ## This is set by the user in ``run``.
+    pathInfo*: string             ## This is ``.path`` without ``appName``.
     secure*: bool
+    path*: string                 ## Path of request.
 
   THttpCode* = enum
     Http200 = "200 OK",
@@ -56,7 +58,7 @@ type
     HttpGet = "GET", HttpPost = "POST"
 
   TCallbackAction = enum
-    TCActionSend, TCActionPass, TCActionHalt, TCActionNothing
+    TCActionSend, TCActionPass, TCActionNothing
 
 const jesterVer = "0.1.0"
 
@@ -67,15 +69,16 @@ var j: TJester
 j.routes = @[]
 j.initOptions()
 
-when not defined(writeStatusContent):
-  proc writeStatusContent(c: TSocket, status, content: string, headers: PStringTable) =
-    var strHeaders = ""
-    if headers != nil:
-      for key, value in headers:
-        strHeaders.add(key & ": " & value & "\r\L")
-    c.send("HTTP/1.1 " & status & "\r\L" & strHeaders & "\r\L")
-    c.send(content & "\r\L")
 
+proc HttpStatusContent(c: TSocket, status, content: string, headers: PStringTable) =
+  var strHeaders = ""
+  if headers != nil:
+    for key, value in headers:
+      strHeaders.add(key & ": " & value & "\r\L")
+  c.send("HTTP/1.1 " & status & "\r\L" & strHeaders & "\r\L")
+  c.send(content & "\r\L")
+  echo("  ", status, " ", headers)
+  
 proc `$`*(r: TRegexMatch): string = return r.original
 
 template guessAction(): stmt =
@@ -91,9 +94,39 @@ template guessAction(): stmt =
       headers = {"Content-Type": "text/html"}.newStringTable
       content = error($Http502, jesterVer)
 
+proc stripAppName(path, appName: string): string =
+  result = path
+  if appname.len > 0:
+    if path.startsWith(appName):
+      if appName.len() == path.len:
+        return
+      else:
+        return path[appName.len .. path.len-1]
+    else:
+      raise newException(EInvalidValue, "Expected script name at beginning of path.")
+
+proc createReq(s: TServer, params: PStringTable): TRequest =
+  result.params = params
+  result.body = s.body
+  result.headers = s.headers
+  if result.headers["Content-Type"] == "application/x-www-form-urlencoded":
+    parseUrlQuery(s.body, result.params)
+  elif result.headers["Content-Type"].startsWith("multipart/form-data"):
+    result.formData = parseMPFD(result.headers["Content-Type"], s.body)
+  result.port = 80
+  result.host = result.headers["HOST"]
+  result.appName = j.options.appName
+  try:
+    result.pathInfo = s.path.stripAppName(result.appName)
+  except EInvalidValue:
+    s.client.close()
+    return
+  
+  result.path = s.path
+  result.secure = false
+
 proc handleHTTPRequest(s: TServer) =
   var params = {:}.newStringTable()
-  echo("Got request " & $params & " path = " & s.path, "  query = ", s.query)
   try:
     for key, val in cgi.decodeData(s.query):
       params[key] = val
@@ -111,7 +144,7 @@ proc handleHTTPRequest(s: TServer) =
       content = b
     except:
       # Handle any errors by showing them in the browser.
-      s.client.writeStatusContent($Http502, 
+      s.client.HttpStatusContent($Http502, 
           routeException(getCurrentExceptionMsg(), jesterVer), 
           {"Content-Type": "text/html"}.newStringTable)
       matched = true
@@ -120,67 +153,52 @@ proc handleHTTPRequest(s: TServer) =
     guessAction()
     case action
     of TCActionSend:
-      s.client.writeStatusContent($code, content, headers)
+      s.client.HttpStatusContent($code, content, headers)
       matched = true
       break
     of TCActionPass:
       matched = false
-    of TCActionHalt:
-      matched = true
-      s.client.writeStatusContent($code, content, headers)
-      break
     of TCActionNothing:
       assert(false)
 
   var matched = false
-  var req: TRequest
-  req.params = params
-  req.body = s.body
-  req.headers = s.headers
-  if req.headers["Content-Type"] == "application/x-www-form-urlencoded":
-    parseUrlQuery(s.body, req.params)
-  elif req.headers["Content-Type"].startsWith("multipart/form-data"):
-    req.formData = parseMPFD(req.headers["Content-Type"], s.body)
-  req.port = 80
-  req.host = req.headers["HOST"]
-  req.scriptName = ""
-  req.pathInfo = s.path
-  req.secure = false
+  var req = createReq(s, params)
+
+  echo(s.reqMethod, " ", req.pathInfo)
   for route in j.routes:
     if $route.meth == s.reqMethod:
       case route.m.typ
       of MRegex:
-        #echo(path, " =~ ", route.m.regexMatch)
-        if s.path =~ route.m.regexMatch.compiled:
+        if req.pathInfo =~ route.m.regexMatch.compiled:
           req.matches = matches
           routeReq()
 
       of MSpecial:
-        let (match, params) = route.m.pattern.match(s.path)
-        #echo(path, " =@ ", route.m.pattern, " | ", match, " ", params)
+        let (match, params) = route.m.pattern.match(req.pathInfo)
         if match:
           for key, val in params:
             req.params[key] = val
           routeReq()
-
+  
   if not matched:
     # Find static file.
     # TODO: Caching.
     if existsFile(j.options.staticDir / s.path):
       var file = readFile(j.options.staticDir / s.path)
       # TODO: Mimetypes
-      s.client.writeStatusContent($Http200, file, 
+      s.client.HttpStatusContent($Http200, file, 
                                   {"Content-type": "text/plain"}.newStringTable)
     else:
-      s.client.writeStatusContent($Http404, error($Http404, jesterVer), 
+      s.client.HttpStatusContent($Http404, error($Http404, jesterVer), 
                                   {"Content-type": "text/html"}.newStringTable)
   
   s.client.close()
   
-proc run*(port = TPort(5000), http = true) =
+proc run*(appName = "", port = TPort(5000), http = true) =
   if http:
+    j.options.appName = appName
     j.s.open(port)
-    echo("Jester is making jokes at localhost:" & $port)
+    echo("Jester is making jokes at localhost" & appName & ":" & $port)
     while true:
       j.s.next()
       handleHTTPRequest(j.s)
@@ -298,8 +316,8 @@ template halt*(code: THttpCode,
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
   ## Immediatelly replies with the specified request.
-  bind TCActionHalt, newStringTable
-  return (TCActionHalt, code, headers.newStringTable, content)
+  bind TCActionSend, newStringTable
+  return (TCActionSend, code, headers.newStringTable, content)
 
 template halt*(): stmt =
   ## Halts the execution of this request immediatelly. Returns a 404.
@@ -343,7 +361,7 @@ proc uriProc*(request: TRequest, address = "", absolute = true, addScriptName = 
     else:
       url.add(TUrl(request.host))
       
-  if addScriptName: url.add(TUrl(request.scriptName))
+  if addScriptName: url.add(TUrl(request.appName))
   url.add(if address != "": address.TUrl else: request.pathInfo.TUrl)
   return string(url)
   
