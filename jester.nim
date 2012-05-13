@@ -393,6 +393,16 @@ template halt*(content: string): stmt =
 template halt*(code: THttpCode, content: string): stmt =
   halt(code, {"Content-Type": "text/html"}, content)
 
+template attachment*(filename = ""): stmt =
+  bind j, getMimetype
+  result[2]["Content-Disposition"] = "attachment"
+  if filename != "":
+    var param = "; filename=\"" & extractFilename(filename) & "\""
+    result[2].mget("Content-Disposition").add(param)
+    let ext = splitFile(filename).ext
+    if not (result[2]["Content-Type"] != "" or ext == ""):
+      result[2]["Content-Type"] = getMimetype(j.mimes, splitFile(filename).ext)
+
 template `@`*(s: string): expr =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be
   ## returned if parameter doesn't exist.

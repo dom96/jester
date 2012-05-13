@@ -110,6 +110,10 @@ get "/session/@value":
   setCookie("qerty", @"value", daysForward(5))  
   resp($request.cookies)
 
+get "/attachment":
+  attachment "file.html"
+  resp "blah"
+
 var http = true
 if paramCount() > 0:
   if paramStr(1) == "scgi":

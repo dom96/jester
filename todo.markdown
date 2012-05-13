@@ -5,8 +5,6 @@
 * More information for the TRequest object.
   * request.accepts "text/xml"
   * Anything else?
-* ``attachment`` function
-  * Tells the browser the response should be saved to disk.
 
 ## Less important
 
