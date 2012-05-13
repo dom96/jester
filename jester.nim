@@ -11,6 +11,7 @@ type
   TCallback = proc (request: var TRequest): TCallbackRet
 
   TJester = object
+    isHttp: bool
     s: TServer
     scgiServer: TScgiState
     routes*: seq[tuple[meth: TReqMeth, m: PMatch, c: TCallback]]
@@ -233,16 +234,44 @@ proc handleSCGIRequest(s: TScgiState) =
   handleRequest(s.client, s.headers["DOCUMENT_URI"], s.headers["QUERY_STRING"], 
                 s.input, s.headers["REQUEST_METHOD"], s.headers, false)
 
+proc close*() =
+  ## Terminates a running instance of jester.
+  if j.isHttp:
+    j.s.close()
+  else:
+    j.scgiServer.close()
+  echo("Jester finishes his performance.")
+
+proc controlCHook() {.noconv.} =
+  echo("Ctrl + C captured.")
+  close()
+  quit(QuitSuccess)
+
+template retryBind(body: stmt): stmt =
+  var failed = true
+  while failed:
+    try:
+      body
+      failed = false
+    except EOS:
+      echo("Could not bind socket, retrying in 30 seconds.")
+      sleep(30000)
+
 proc run*(appName = "", port = TPort(5000), http = true) =
   j.options.appName = appName
-  if http:  
-    j.s.open(port)
+  setControlCHook(controlCHook)
+  if http:
+    j.isHttp = true
+    retryBind:
+      j.s.open(port)
     echo("Jester is making jokes at localhost" & appName & ":" & $port)
     while true:
       j.s.next()
       handleHTTPRequest(j.s)
   else:
-    j.scgiServer.open(port)
+    j.isHttp = false
+    retryBind:
+      j.scgiServer.open(port)
     echo("Jester is making jokes for scgi at localhost:" & $port)
     while true:
       if j.scgiServer.next():
@@ -414,7 +443,7 @@ proc `staticDir=`*(dir: string) =
   ##
   ## The files will be served like so:
   ## 
-  ## ./public/css/style.css -> http://example.com/css/style.css
+  ## ./public/css/style.css ``->`` http://example.com/css/style.css
   ## 
   ## (``./public`` is not included in the final URL)
   j.options.staticDir = dir
