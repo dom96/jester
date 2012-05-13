@@ -1,5 +1,5 @@
 import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi, cookies, times
+        scgi, cookies, times, mimetypes
 
 import patterns, errorpages, utils
 
@@ -15,7 +15,8 @@ type
     scgiServer: TScgiState
     routes*: seq[tuple[meth: TReqMeth, m: PMatch, c: TCallback]]
     options: TOptions
-
+    mimes*: TMimeDb
+    
   TOptions = object
     staticDir: string # By default ./public
     appName: string
@@ -72,6 +73,7 @@ proc initOptions(j: var TJester) =
 var j: TJester
 j.routes = @[]
 j.initOptions()
+j.mimes = newMimetypes()
 
 proc statusContent(c: TSocket, status, content: string, headers: PStringTable, http: bool) =
   var strHeaders = ""
@@ -215,9 +217,9 @@ proc handleRequest(client: TSocket, path, query, body,
     # TODO: Caching.
     if existsFile(j.options.staticDir / req.pathInfo):
       var file = readFile(j.options.staticDir / req.pathInfo)
-      # TODO: Mimetypes
-      client.statusContent($Http200, file, 
-                          {"Content-type": "text/plain"}.newStringTable, isHttp)
+      let mimetype = j.mimes.getMimetype(req.pathinfo.splitFile.ext[1 .. -1])
+      client.statusContent($Http200, file,
+                          {"Content-type": mimetype}.newStringTable, isHttp)
     else:
       client.statusContent($Http404, error($Http404, jesterVer), 
                           {"Content-type": "text/html"}.newStringTable, isHttp)

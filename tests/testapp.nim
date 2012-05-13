@@ -114,6 +114,6 @@ var http = true
 if paramCount() > 0:
   if paramStr(1) == "scgi":
     http = false
-run("/jester", port = TPort(9999), http=http)
+run(if not http: "/jester" else: "", port = TPort(9999), http=http)
 
   
