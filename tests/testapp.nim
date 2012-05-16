@@ -3,7 +3,8 @@ import jester, re, strtabs, math, tables, sockets, strutils, os
 #get "/": pass()
 
 get "/":
-  resp "<h1>Hello world</h1>"
+  resp "<h1>Hello world</h1>" &
+       "<h3>Your ip address is: " & request.ip
 
 get "/halt":
   halt Http502, "I'm sorry, this page has been halted."

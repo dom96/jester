@@ -47,11 +47,12 @@ type
     formData*: TMultiData         ## Form data; only present for multipart/form-data
     port*: int
     host*: string
-    appName*: string              ## This is set by the user in ``run``.
+    appName*: string              ## This is set by the user in ``run``, it is overriden by the "SCRIPT_NAME" scgi parameter.
     pathInfo*: string             ## This is ``.path`` without ``.appName``.
     secure*: bool
     path*: string                 ## Path of request.
     cookies*: PStringTable        ## Cookies from the browser.
+    ip*: string                   ## IP address of the requesting client.
 
   THttpCode* = enum
     Http200 = "200 OK",
@@ -124,13 +125,16 @@ proc renameHeaders(headers: PStringTable): PStringTable =
       # TODO: Should scgi-specific headers be preserved?
       #result[key] = val
 
-proc createReq(path, body: string, headers, 
+proc createReq(path, body, ip: string, headers, 
                params: PStringTable, isHttp: bool): TRequest =
   result.params = params
   result.body = body
+  result.appName = j.options.appName
   if isHttp:
     result.headers = headers
   else:
+    if headers["SCRIPT_NAME"] != "":
+      result.appName = headers["SCRIPT_NAME"]
     result.headers = renameHeaders(headers)
   if result.headers["Content-Type"] == "application/x-www-form-urlencoded":
     parseUrlQuery(body, result.params)
@@ -140,8 +144,8 @@ proc createReq(path, body: string, headers,
     result.port = result.headers["SERVER_PORT"].parseInt
   else:
     result.port = 80
+  result.ip = ip
   result.host = result.headers["HOST"]
-  result.appName = j.options.appName
   result.pathInfo = path.stripAppName(result.appName)
   result.path = path
   result.secure = false
@@ -160,9 +164,17 @@ template routeReq(): stmt =
     content = b
   except:
     # Handle any errors by showing them in the browser.
-    client.statusContent($Http502, 
-        routeException(getCurrentExceptionMsg(), jesterVer), 
-        {"Content-Type": "text/html"}.newStringTable, isHttp)
+    when not defined(release):
+      let traceback = getStackTrace().replace("\n", "<br/>\n")
+      let error = traceback & getCurrentExceptionMsg()
+      client.statusContent($Http502, 
+          routeException(error, jesterVer), 
+          {"Content-Type": "text/html"}.newStringTable, isHttp)
+    else:
+      client.statusContent($Http502, 
+            routeException(getCurrentExceptionMsg(), jesterVer), 
+            {"Content-Type": "text/html"}.newStringTable, isHttp)
+      
     matched = true
     break
   
@@ -177,7 +189,7 @@ template routeReq(): stmt =
   of TCActionNothing:
     assert(false)
 
-proc handleRequest(client: TSocket, path, query, body,
+proc handleRequest(client: TSocket, path, query, body, ip,
                    reqMethod: string, headers: PStringTable, isHttp: bool) =
   var params = {:}.newStringTable()
   try:
@@ -189,7 +201,7 @@ proc handleRequest(client: TSocket, path, query, body,
   var matched = false
   var req: TRequest
   try:
-    req = createReq(path, body, headers, params, isHttp)
+    req = createReq(path, body, ip, headers, params, isHttp)
   except EInvalidValue:
     if isHttp:
       client.close()
@@ -228,11 +240,12 @@ proc handleRequest(client: TSocket, path, query, body,
   client.close()
 
 proc handleHTTPRequest(s: TServer) =
-  handleRequest(s.client, s.path, s.query, s.body, s.reqMethod, s.headers, true)
+  handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod, s.headers, true)
 
 proc handleSCGIRequest(s: TScgiState) =
   handleRequest(s.client, s.headers["DOCUMENT_URI"], s.headers["QUERY_STRING"], 
-                s.input, s.headers["REQUEST_METHOD"], s.headers, false)
+                s.input,  s.headers["REMOTE_ADDR"],
+                s.headers["REQUEST_METHOD"], s.headers, false)
 
 proc close*() =
   ## Terminates a running instance of jester.
@@ -387,8 +400,13 @@ template status*(): expr =
 
 template redirect*(url: string): stmt =
   ## Redirects to ``url``. Returns from this request handler immediately.
+  ## Any set response headers are preserved for this request.
   bind TCActionSend, newStringTable
-  return (TCActionSend, Http303, {"Location": url}.newStringTable, "")
+  result[0] = TCActionSend
+  result[1] = Http303
+  result[2]["Location"] = url
+  result[3] = ""
+  return
 
 template pass*(): stmt =
   ## Skips this request handler.
@@ -448,7 +466,7 @@ proc `staticDir=`*(dir: string) =
   ## (``./public`` is not included in the final URL)
   j.options.staticDir = dir
 
-proc uriProc*(request: TRequest, address = "", absolute = true, addScriptName = true): string =
+proc makeUri*(request: TRequest, address = "", absolute = true, addScriptName = true): string =
   # Check if address already starts with scheme://
   var url = TUrl("")
   if address.find("://") != -1: return address
@@ -466,7 +484,7 @@ proc uriProc*(request: TRequest, address = "", absolute = true, addScriptName = 
   return string(url)
   
 template uri*(address = "", absolute = true, addScriptName = true): expr =
-  request.uriProc(address, absolute, addScriptName)
+  request.makeUri(address, absolute, addScriptName)
 
 proc daysForward*(days: int): TTimeInfo =
   ## Returns a TTimeInfo object referring to the current time plus ``days``.
