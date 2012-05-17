@@ -287,8 +287,11 @@ proc run*(appName = "", port = TPort(5000), http = true) =
       j.scgiServer.open(port)
     echo("Jester is making jokes for scgi at localhost:" & $port)
     while true:
-      if j.scgiServer.next():
-        handleSCGIRequest(j.scgiServer)
+      try:
+        if j.scgiServer.next():
+          handleSCGIRequest(j.scgiServer)
+      except EScgi:
+        echo("[Warning] SCGI gave error: ", getCurrentExceptionMsg()) 
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
