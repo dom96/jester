@@ -82,9 +82,15 @@ proc statusContent(c: TSocket, status, content: string, headers: PStringTable, h
   if headers != nil:
     for key, value in headers:
       strHeaders.add(key & ": " & value & "\r\L")
-  c.send((if http: "HTTP/1.1 " else: "") & status & "\r\L" & strHeaders & "\r\L")
-  c.send(content & "\r\L")
-  echo("  ", status, " ", headers)
+  var sent = false
+  sent = c.trySend((if http: "HTTP/1.1 " else: "") & status & "\r\L" & strHeaders & "\r\L")
+  if sent:
+    sent = c.trySend(content & "\r\L")
+  
+  if sent:
+    echo("  ", status, " ", headers)
+  else:
+    echo("Could not send response: ", OSErrorMsg())
   
 proc `$`*(r: TRegexMatch): string = return r.original
 
@@ -293,6 +299,8 @@ proc run*(appName = "", port = TPort(5000), http = true) =
       except EScgi:
         echo("[Warning] SCGI gave error: ", getCurrentExceptionMsg()) 
 
+template jester*(
+
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
 
@@ -367,36 +375,14 @@ template resp*(code: THttpCode, content: string,
   result[2]["Content-Type"] = contentType
   result[3] = content
 
-template `body=`*(content: string): stmt =
-  ## Allows you to set the body of the response to ``content``. This is the
-  ## same as ``resp``.
-  bind TCActionSend
-  result[0] = TCActionSend
-  result[1] = Http200
-  result[2]["Content-Type"] = "text/html"
-  result[3] = content
-
 template body*(): expr =
   # Unfortunately I cannot explicitly set meta data like I can in `body=` :\
   # This means that it is up to guessAction to infer this if the user adds
   # something to the body for example.
   result[3]
 
-template `headers=`*(theh: openarray[tuple[key, value: string]]): stmt =
-  ## Allows you to set the response headers.
-  bind TCActionSend, newStringTable
-  result[0] = TCActionSend
-  result[1] = Http200
-  result[2] = theh.newStringTable
-
 template headers*(): expr =
   result[2]
-
-template `status=`*(sta: THttpCode): stmt =
-  ## Allows you to set the response status.
-  bind TCActionSend
-  result[0] = TCActionSend
-  result[1] = sta
 
 template status*(): expr =
   result[1]
@@ -458,7 +444,7 @@ template `@`*(s: string): expr =
   ## returned if parameter doesn't exist.
   request.params[s]
   
-proc `staticDir=`*(dir: string) =
+proc setStaticDir*(dir: string) =
   ## Sets the directory in which Jester will look for static files. It is
   ## ``./public`` by default.
   ##
