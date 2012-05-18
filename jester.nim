@@ -299,8 +299,6 @@ proc run*(appName = "", port = TPort(5000), http = true) =
       except EScgi:
         echo("[Warning] SCGI gave error: ", getCurrentExceptionMsg()) 
 
-template jester*(
-
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
 
