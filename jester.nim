@@ -469,7 +469,11 @@ proc makeUri*(request: TRequest, address = "", absolute = true, addScriptName = 
   if addScriptName: url.add(TUrl(request.appName))
   url.add(if address != "": address.TUrl else: request.pathInfo.TUrl)
   return string(url)
-  
+
+proc makeUri*(request: TRequest, address: TUrl = TUrl(""), absolute = true, addScriptName = true): string =
+  # Overload for TUrl.
+  return request.makeUri($address, absolute, addScriptName)
+
 template uri*(address = "", absolute = true, addScriptName = true): expr =
   request.makeUri(address, absolute, addScriptName)
 
@@ -488,4 +492,8 @@ template setCookie*(name, value: string, expires: TTimeInfo): stmt =
   else:  
     result[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
 
-
+proc normalizeUri*(uri: string): string =
+  ## Removed any leading ``/``.
+  if uri[uri.len-1] == '/': result = uri[0 .. -2]
+  else: result = uri
+  
