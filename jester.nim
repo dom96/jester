@@ -279,13 +279,20 @@ template retryBind(body: stmt): stmt =
       sleep(30000)
 
 proc run*(appName = "", port = TPort(5000), http = true) =
+  ## Enters Jester's event loop, this function will run forever.
+  ##
+  ## ``appName`` determines the path that will be appended to the request
+  ## path when matching. This can be overriden by SCGI's ``SCRIPT_NAME`` param.
+  ## 
+  ## When ``http`` is ``False``, Jester will run as a SCGI app.
+
   j.options.appName = appName
   setControlCHook(controlCHook)
   if http:
     j.isHttp = true
     retryBind:
       j.s.open(port)
-    echo("Jester is making jokes at localhost" & appName & ":" & $port)
+    echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
     while true:
       j.s.next()
       handleHTTPRequest(j.s)
@@ -349,6 +356,10 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt =
                                      body)))
 
 template post*(path: string, body: stmt): stmt =
+  ## Route handler for POST requests.
+  ##
+  ## ``path`` behaves in the same way as with the ``get`` template.
+
   bind HttpPost, matchAddPattern
   matchAddPattern(HttpPost, path, body)
 
@@ -379,15 +390,24 @@ template resp*(code: THttpCode, content: string,
   result[3] = content
 
 template body*(): expr =
+  ## Gets the body of the request.
+  ##
+  ## **Note:** It's usually a better idea to use the ``resp`` templates.
+  result[3]
   # Unfortunately I cannot explicitly set meta data like I can in `body=` :\
   # This means that it is up to guessAction to infer this if the user adds
   # something to the body for example.
-  result[3]
 
 template headers*(): expr =
+  ## Gets the headers of the request.
+  ##
+  ## **Note:** It's usually a better idea to use the ``resp`` templates.
   result[2]
 
 template status*(): expr =
+  ## Gets the status of the request.
+  ##
+  ## **Note:** It's usually a better idea to use the ``resp`` templates.
   result[1]
 
 template redirect*(url: string): stmt =
@@ -402,17 +422,22 @@ template redirect*(url: string): stmt =
 
 template pass*(): stmt =
   ## Skips this request handler.
+  ##
+  ## If you want to stop this request from going further use ``halt``.
   bind TCActionPass
   return (TCActionPass, Http404, nil, "")
 
 template cond*(condition: bool): stmt =
-  ## If ``condition`` is ``False`` then ``pass`` will be called.
+  ## If ``condition`` is ``False`` then ``pass`` will be called,
+  ## i.e. this request handler will be skipped.
   if not condition: pass()
 
 template halt*(code: THttpCode,
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
-  ## Immediately replies with the specified request.
+  ## Immediately replies with the specified request. This means any further
+  ## code will not be executed after calling this template in the current
+  ## route.
   bind TCActionSend, newStringTable
   return (TCActionSend, code, headers.newStringTable, content)
 
@@ -433,6 +458,9 @@ template halt*(code: THttpCode, content: string): stmt =
   halt(code, {"Content-Type": "text/html"}, content)
 
 template attachment*(filename = ""): stmt =
+  ## Creates an attachment out of ``filename``. Once the route exits,
+  ## ``filename`` will be sent to the person making the request and web browsers
+  ## will be hinted to open their Save As dialog box.
   bind j, getMimetype
   result[2]["Content-Disposition"] = "attachment"
   if filename != "":
@@ -459,6 +487,11 @@ proc setStaticDir*(dir: string) =
   j.options.staticDir = dir
 
 proc makeUri*(request: TRequest, address = "", absolute = true, addScriptName = true): string =
+  ## Creates a URI based on the current request. If ``absolute`` is true it will
+  ## add the scheme (Usually 'http://'), `request.host` and `request.port`.
+  ## If ``addScriptName`` is true `request.appName` will be prepended before 
+  ## ``address``. 
+
   # Check if address already starts with scheme://
   var url = TUrl("")
   if address.find("://") != -1: return address
@@ -476,10 +509,11 @@ proc makeUri*(request: TRequest, address = "", absolute = true, addScriptName = 
   return string(url)
 
 proc makeUri*(request: TRequest, address: TUrl = TUrl(""), absolute = true, addScriptName = true): string =
-  # Overload for TUrl.
+  ## Overload for TUrl.
   return request.makeUri($address, absolute, addScriptName)
 
 template uri*(address = "", absolute = true, addScriptName = true): expr =
+  ## Convenience template which can be used in a route.
   request.makeUri(address, absolute, addScriptName)
 
 proc daysForward*(days: int): TTimeInfo =
@@ -498,7 +532,7 @@ template setCookie*(name, value: string, expires: TTimeInfo): stmt =
     result[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
 
 proc normalizeUri*(uri: string): string =
-  ## Removed any leading ``/``.
+  ## Remove any leading ``/``.
   if uri[uri.len-1] == '/': result = uri[0 .. -2]
   else: result = uri
   
