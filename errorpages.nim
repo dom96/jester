@@ -1,3 +1,5 @@
+# Copyright (C) 2012 Dominik Picheta
+# MIT License - Look at license.txt for details.
 import htmlgen
 proc error*(err, jesterVer: string): string =
    return html(head(title(err)), 

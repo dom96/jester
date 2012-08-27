@@ -1,3 +1,5 @@
+# Copyright (C) 2012 Dominik Picheta
+# MIT License - Look at license.txt for details.
 import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils, uri,
         scgi, cookies, times, mimetypes
 
@@ -8,7 +10,7 @@ from cgi import decodeData, ECgi
 type
   TCallbackRet = tuple[action: TCallbackAction, code: THttpCode, 
                        headers: PStringTable, content: string]
-  TCallback = proc (request: var TRequest): TCallbackRet
+  TCallback = proc (request: var TRequest): TCallbackRet {.nimcall.}
 
   TJester = object
     isHttp: bool
@@ -159,7 +161,7 @@ proc createReq(path, body, ip: string, headers,
     result.cookies = parseCookies(result.headers["Cookie"])
   else: result.cookies = newStringTable()
 
-template routeReq(): stmt =
+template routeReq(): stmt {.dirty.} =
   var (action, code, headers, content) = (TCActionNothing, http200,
                                           {:}.newStringTable, "")
   try:
@@ -298,6 +300,9 @@ proc run*(appName = "", port = TPort(5000), http = true) =
           handleSCGIRequest(j.scgiServer)
       except EScgi:
         echo("[Warning] SCGI gave error: ", getCurrentExceptionMsg()) 
+      except:
+        echo getStackTrace(getCurrentException())
+        break
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
@@ -319,7 +324,7 @@ template matchAddPattern(meth: THttpCode, path: string,
     match.typ = MSpecial
     match.pattern = parsePattern(path)
 
-    j.routes.add((meth, match, (proc (request: var TRequest): TCallbackRet =
+    j.routes.add((meth, match, (proc (request: var TRequest): TCallbackRet {.nimcall.} =
                                      setDefaultResp()
                                      body)))
 

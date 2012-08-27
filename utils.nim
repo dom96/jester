@@ -1,3 +1,5 @@
+# Copyright (C) 2012 Dominik Picheta
+# MIT License - Look at license.txt for details.
 import parseutils, strtabs, strutils, tables
 from cgi import urlDecode
 
