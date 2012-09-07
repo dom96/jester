@@ -1,7 +1,7 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi, cookies, times, mimetypes
+        scgi, cookies, times, mimetypes, asyncio
 
 import patterns, errorpages, utils
 
@@ -14,8 +14,13 @@ type
 
   TJester = object
     isHttp: bool
-    s: TServer
-    scgiServer: TScgiState
+    case isAsync: bool
+    of true:
+      asyncHTTP: PAsyncHTTPServer
+      asyncSCGI: PAsyncScgiState
+    of false:
+      s: TServer
+      scgiServer: TScgiState
     routes*: seq[tuple[meth: TReqMeth, m: PMatch, c: TCallback]]
     options: TOptions
     mimes*: TMimeDb
@@ -197,7 +202,7 @@ template routeReq(): stmt {.dirty.} =
   of TCActionNothing:
     assert(false)
 
-proc handleRequest(client: TSocket, path, query, body, ip,
+proc handleRequest[Sock: TSocket | PAsyncSocket](client: Sock, path, query, body, ip,
                    reqMethod: string, headers: PStringTable, isHttp: bool) =
   var params = {:}.newStringTable()
   try:
@@ -248,12 +253,17 @@ proc handleRequest(client: TSocket, path, query, body, ip,
   client.close()
 
 proc handleHTTPRequest(s: TServer) =
-  handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod, s.headers, true)
+  handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
+                s.headers, true)
 
 proc handleSCGIRequest(s: TScgiState) =
   handleRequest(s.client, s.headers["DOCUMENT_URI"], s.headers["QUERY_STRING"], 
                 s.input,  s.headers["REMOTE_ADDR"],
                 s.headers["REQUEST_METHOD"], s.headers, false)
+
+proc handleHTTPRequest(s: PAsyncHTTPServer) =
+  handleRequest(s.asyncClient, s.path, s.query, s.body, s.ip, s.reqMethod,
+                s.headers, true)
 
 proc close*() =
   ## Terminates a running instance of jester.
@@ -285,7 +295,10 @@ proc run*(appName = "", port = TPort(5000), http = true) =
   ## path when matching. This can be overriden by SCGI's ``SCRIPT_NAME`` param.
   ## 
   ## When ``http`` is ``False``, Jester will run as a SCGI app.
-
+  ##
+  ## **Warning:** Jester sets its own Ctrl+C hook, this may cause problems
+  ## if you override it.
+  j.isAsync = false
   j.options.appName = appName
   setControlCHook(controlCHook)
   if http:
@@ -310,6 +323,29 @@ proc run*(appName = "", port = TPort(5000), http = true) =
       except:
         echo getStackTrace(getCurrentException())
         break
+
+proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true) =
+  ## Registers Jester with an Asyncio dispatcher.
+  ##
+  ## This function is the equivalent to ``run`` but it does not enter
+  ## Jester's event loop instead registering Jester with a Dispatcher thus
+  ## allowing it to be used with asyncio's event loop.
+  ##
+  ## **Warning:** Jester sets its own Ctrl+C hook, this may cause problems
+  ## if you override it.
+  
+  j.isAsync = true
+  j.options.appName = appName
+  setControlCHook(controlCHook)
+  if http:
+    j.isHttp = true
+    j.asyncHTTP = asyncHTTPServer(
+      (proc (server: PAsyncHTTPServer, client: PAsyncSocket, 
+             path, query: string): bool =
+         handleHTTPRequest(j.asyncHTTP)),
+      port)
+    d.register(j.asyncHTTP)
+    echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)

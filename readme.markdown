@@ -18,7 +18,7 @@ Compile and run with:
   nimrod c -r myapp.nim
 
 
-View at: [localhost:9999](http://localhost:9999)
+View at: [localhost:5000](http://localhost:5000)
 
 ## Routes
 
