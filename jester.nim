@@ -19,6 +19,7 @@ type
       asyncHTTP: PAsyncHTTPServer
       asyncSCGI: PAsyncScgiState
     of false:
+      dummyA, dummyB: pointer # workaround a Nimrod API issue
       s: TServer
       scgiServer: TScgiState
     routes*: seq[tuple[meth: TReqMeth, m: PMatch, c: TCallback]]
@@ -202,6 +203,7 @@ template routeReq(): stmt {.dirty.} =
   of TCActionNothing:
     assert(false)
 
+template setMatches(req: expr) = req.matches = matches # Workaround.
 proc handleRequest[Sock: TSocket | PAsyncSocket](client: Sock, path, query, body, ip,
                    reqMethod: string, headers: PStringTable, isHttp: bool) =
   var params = {:}.newStringTable()
@@ -228,7 +230,7 @@ proc handleRequest[Sock: TSocket | PAsyncSocket](client: Sock, path, query, body
       case route.m.typ
       of MRegex:
         if req.pathInfo =~ route.m.regexMatch.compiled:
-          req.matches = matches
+          setMatches(req)
           routeReq()
 
       of MSpecial:
@@ -262,15 +264,21 @@ proc handleSCGIRequest(s: TScgiState) =
                 s.headers["REQUEST_METHOD"], s.headers, false)
 
 proc handleHTTPRequest(s: PAsyncHTTPServer) =
-  handleRequest(s.asyncClient, s.path, s.query, s.body, s.ip, s.reqMethod,
+  handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
                 s.headers, true)
 
 proc close*() =
   ## Terminates a running instance of jester.
   if j.isHttp:
-    j.s.close()
+    if j.isAsync:
+      j.asyncHTTP.close()
+    else:
+      j.s.close()
   else:
-    j.scgiServer.close()
+    if j.isAsync:
+      j.asyncSCGI.close()
+    else:
+      j.scgiServer.close()
   echo("Jester finishes his performance.")
 
 proc controlCHook() {.noconv.} =
@@ -333,14 +341,13 @@ proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true) =
   ##
   ## **Warning:** Jester sets its own Ctrl+C hook, this may cause problems
   ## if you override it.
-  
   j.isAsync = true
   j.options.appName = appName
   setControlCHook(controlCHook)
   if http:
     j.isHttp = true
     j.asyncHTTP = asyncHTTPServer(
-      (proc (server: PAsyncHTTPServer, client: PAsyncSocket, 
+      (proc (server: PAsyncHTTPServer, client: TSocket, 
              path, query: string): bool =
          handleHTTPRequest(j.asyncHTTP)),
       port)
