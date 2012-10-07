@@ -476,7 +476,7 @@ template cond*(condition: bool): stmt =
   if not condition: pass()
 
 template halt*(code: THttpCode,
-               headers: openarray[tuple[key, value: string]],
+               headers: varargs[tuple[key, val: string]],
                content: string): stmt =
   ## Immediately replies with the specified request. This means any further
   ## code will not be executed after calling this template in the current
