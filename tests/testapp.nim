@@ -115,6 +115,9 @@ get "/attachment":
   attachment "file.html"
   resp "blah"
 
+get "/error":
+  raise newException(ESynch, "BLAH BLAH BLAH")
+
 var http = true
 if paramCount() > 0:
   if paramStr(1) == "scgi":

@@ -178,17 +178,12 @@ template routeReq(): stmt {.dirty.} =
     content = b
   except:
     # Handle any errors by showing them in the browser.
-    when not defined(release):
-      let traceback = getStackTrace().replace("\n", "<br/>\n")
-      let error = traceback & getCurrentExceptionMsg()
-      client.statusContent($Http502, 
-          routeException(error, jesterVer), 
-          {"Content-Type": "text/html"}.newStringTable, isHttp)
-    else:
-      client.statusContent($Http502, 
-            routeException(getCurrentExceptionMsg(), jesterVer), 
-            {"Content-Type": "text/html"}.newStringTable, isHttp)
-      
+    let traceback = getStackTrace(getCurrentException()).replace("\n", "<br/>\n")
+    let error = traceback & getCurrentExceptionMsg()
+    client.statusContent($Http502, 
+        routeException(error, jesterVer), 
+        {"Content-Type": "text/html"}.newStringTable, isHttp)
+    
     matched = true
     break
   
