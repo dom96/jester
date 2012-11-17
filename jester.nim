@@ -524,6 +524,12 @@ proc setStaticDir*(dir: string) =
   ## (``./public`` is not included in the final URL)
   j.options.staticDir = dir
 
+proc getStaticDir*(): string =
+  ## Gets the directory in which Jester will look for static files.
+  ##
+  ## ``./public`` by default.
+  return j.options.staticDir
+
 proc makeUri*(request: TRequest, address = "", absolute = true, addScriptName = true): string =
   ## Creates a URI based on the current request. If ``absolute`` is true it will
   ## add the scheme (Usually 'http://'), `request.host` and `request.port`.
