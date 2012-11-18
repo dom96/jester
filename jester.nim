@@ -118,13 +118,19 @@ template guessAction(): stmt =
 proc stripAppName(path, appName: string): string =
   result = path
   if appname.len > 0:
-    if path.startsWith(appName):
-      if appName.len() == path.len:
+    var slashAppName = appName
+    if slashAppName[0] != '/' and path[0] == '/':
+      slashAppName = '/' & slashAppName
+  
+    if path.startsWith(slashAppName):
+      if slashAppName.len() == path.len:
         return "/"
       else:
         return path[appName.len .. path.len-1]
     else:
-      raise newException(EInvalidValue, "Expected script name at beginning of path.")
+      raise newException(EInvalidValue,
+          "Expected script name at beginning of path. Got path: " &
+           path & " script name: " & appName)
 
 proc renameHeaders(headers: PStringTable): PStringTable =
   ## Renames headers beginning with HTTP_.
