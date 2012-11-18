@@ -253,7 +253,7 @@ proc handleHTTPRequest(s: TServer) =
   handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
                 s.headers, true)
 
-proc handleSCGIRequest(s: TScgiState) =
+proc handleSCGIRequest[TScgi: TScgiState | PAsyncScgiState](s: TScgi) =
   handleRequest(s.client, s.headers["DOCUMENT_URI"], s.headers["QUERY_STRING"], 
                 s.input,  s.headers["REMOTE_ADDR"],
                 s.headers["REQUEST_METHOD"], s.headers, false)
@@ -348,6 +348,14 @@ proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true) =
       port)
     d.register(j.asyncHTTP)
     echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
+  else:
+    j.isHttp = false
+    var clos = proc (server: var TAsyncScgiState, client: TSocket, 
+                     input: string, headers: PStringTable) {.closure.} =
+         handleSCGIRequest(j.asyncSCGI)
+    j.asyncSCGI = scgi.open(clos, port)
+    d.register(j.asyncSCGI)
+    echo("Jester is making jokes for scgi at localhost" & appName & ":" & $port)
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
