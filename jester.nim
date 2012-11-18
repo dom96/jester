@@ -126,11 +126,11 @@ proc stripAppName(path, appName: string): string =
       if slashAppName.len() == path.len:
         return "/"
       else:
-        return path[appName.len .. path.len-1]
+        return path[slashAppName.len .. path.len-1]
     else:
       raise newException(EInvalidValue,
           "Expected script name at beginning of path. Got path: " &
-           path & " script name: " & appName)
+           path & " script name: " & slashAppName)
 
 proc renameHeaders(headers: PStringTable): PStringTable =
   ## Renames headers beginning with HTTP_.
