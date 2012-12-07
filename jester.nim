@@ -3,9 +3,9 @@
 import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils, uri,
         scgi, cookies, times, mimetypes, asyncio
 
-import jester/private/patterns, 
-       jester/private/errorpages,
-       jester/private/utils
+import private/patterns, 
+       private/errorpages,
+       private/utils
 
 from cgi import decodeData, ECgi
 

@@ -5,3 +5,4 @@ author        = "Dominik Picheta"
 description   = "A sinatra-like web framework for Nimrod."
 
 [Library]
+SkipFiles = "todo.markdown"
