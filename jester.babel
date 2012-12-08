@@ -5,5 +5,4 @@ author        = "Dominik Picheta"
 description   = "A sinatra-like web framework for Nimrod."
 license       = "MIT"
 
-[Library]
 SkipFiles = "todo.markdown"
