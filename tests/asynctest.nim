@@ -11,4 +11,3 @@ while true:
   if not d.poll():
     echo("All sockets closed.")
     break
-    

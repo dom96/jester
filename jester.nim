@@ -206,6 +206,21 @@ template routeReq(): stmt {.dirty.} =
   of TCActionNothing:
     assert(false)
 
+proc sendStaticIfExists[Sock: TSocket | PAsyncSocket](client: Sock, isHttp: bool,
+                                                      paths: varargs[string]) =
+  for p in paths:
+    if existsFile(p):
+      var file = readFile(p)
+      # TODO: Check file permissions
+      let mimetype = j.mimes.getMimetype(p.splitFile.ext[1 .. -1])
+      client.statusContent($Http200, file,
+                           {"Content-type": mimetype}.newStringTable, isHttp)
+      return
+  
+  # If we get to here then no match could be found.
+  client.statusContent($Http404, error($Http404, jesterVer), 
+                       {"Content-type": "text/html"}.newStringTable, isHttp)
+
 template setMatches(req: expr) = req.matches = matches # Workaround.
 proc handleRequest[Sock: TSocket | PAsyncSocket](client: Sock, path, query, body, ip,
                    reqMethod: string, headers: PStringTable, isHttp: bool) =
@@ -246,14 +261,12 @@ proc handleRequest[Sock: TSocket | PAsyncSocket](client: Sock, path, query, body
   if not matched:
     # Find static file.
     # TODO: Caching.
-    if existsFile(j.options.staticDir / req.pathInfo):
-      var file = readFile(j.options.staticDir / req.pathInfo)
-      let mimetype = j.mimes.getMimetype(req.pathinfo.splitFile.ext[1 .. -1])
-      client.statusContent($Http200, file,
-                          {"Content-type": mimetype}.newStringTable, isHttp)
+    let publicRequested = j.options.staticDir / req.pathInfo
+    if existsDir(publicRequested):
+      client.sendStaticIfExists(isHttp, publicRequested / "index.html",
+                                        publicRequested / "index.htm")
     else:
-      client.statusContent($Http404, error($Http404, jesterVer), 
-                          {"Content-type": "text/html"}.newStringTable, isHttp)
+      client.sendStaticIfExists(isHttp, publicRequested)
 
   client.close()
 

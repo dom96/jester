@@ -5,6 +5,7 @@
 * More information for the TRequest object.
   * request.accepts "text/xml"
   * Anything else?
+* Check file permissions for static files
 
 ## Less important
 
