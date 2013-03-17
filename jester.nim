@@ -402,7 +402,7 @@ template matchAddPattern(meth: THttpCode, path: string,
                                      setDefaultResp()
                                      body)))
 
-template get*(path: string, body: stmt): stmt =
+template get*(path: string, body: stmt): stmt {.immediate.} =
   ## Route handler for GET requests.
   ##
   ## ``path`` may contain named parameters, for example ``@param``. These
@@ -411,7 +411,7 @@ template get*(path: string, body: stmt): stmt =
   bind HttpGet, matchAddPattern
   matchAddPattern(HttpGet, path, body)
 
-template getRe*(rePath: TRegexMatch, body: stmt): stmt =
+template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate.} =
   block:
     bind j, PMatch, TRequest, TCallbackRet, setDefaultResp, HttpGet
     var match: PMatch
@@ -422,7 +422,7 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt =
                                      setDefaultResp()
                                      body)))
 
-template post*(path: string, body: stmt): stmt =
+template post*(path: string, body: stmt): stmt {.immediate.} =
   ## Route handler for POST requests.
   ##
   ## ``path`` behaves in the same way as with the ``get`` template.
