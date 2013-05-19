@@ -91,11 +91,11 @@ proc statusContent(c: TSocket, status, content: string, headers: PStringTable, h
   var strHeaders = ""
   if headers != nil:
     for key, value in headers:
-      strHeaders.add(key & ": " & value & "\r\L")
+      strHeaders.add(key & ": " & value & "\c\L")
   var sent = false
-  sent = c.trySend((if http: "HTTP/1.1 " else: "") & status & "\r\L" & strHeaders & "\r\L")
+  sent = c.trySend((if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" & strHeaders & "\c\L")
   if sent:
-    sent = c.trySend(content & "\r\L")
+    sent = c.trySend(content & "\c\L")
   
   if sent:
     echo("  ", status, " ", headers)
@@ -274,10 +274,15 @@ proc handleHTTPRequest(s: TServer) =
   handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
                 s.headers, true)
 
-proc handleSCGIRequest[TScgi: TScgiState | PAsyncScgiState](s: TScgi) =
+proc handleSCGIRequest(s: TScgiState) =
   handleRequest(s.client, s.headers["DOCUMENT_URI"], s.headers["QUERY_STRING"], 
                 s.input,  s.headers["REMOTE_ADDR"],
                 s.headers["REQUEST_METHOD"], s.headers, false)
+
+proc handleSCGIRequest(client: PAsyncSocket, input: string, headers: PStringTable) =
+  handleRequest(client, headers["DOCUMENT_URI"], headers["QUERY_STRING"],
+                input, headers["REMOTE_ADDR"], headers["REQUEST_METHOD"], headers,
+                false)
 
 proc handleHTTPRequest(s: PAsyncHTTPServer) =
   handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
@@ -324,7 +329,7 @@ proc run*(appName = "", port = TPort(5000), http = true) =
   ## if you override it.
   j.isAsync = false
   j.options.appName = appName
-  setControlCHook(controlCHook)
+  #setControlCHook(controlCHook)
   if http:
     j.isHttp = true
     retryBind:
@@ -359,7 +364,7 @@ proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true) =
   ## if you override it.
   j.isAsync = true
   j.options.appName = appName
-  setControlCHook(controlCHook)
+  #setControlCHook(controlCHook)
   if http:
     j.isHttp = true
     j.asyncHTTP = asyncHTTPServer(
@@ -371,10 +376,7 @@ proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true) =
     echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
   else:
     j.isHttp = false
-    var clos = proc (server: var TAsyncScgiState, client: TSocket, 
-                     input: string, headers: PStringTable) {.closure.} =
-         handleSCGIRequest(j.asyncSCGI)
-    j.asyncSCGI = scgi.open(clos, port)
+    j.asyncSCGI = scgi.open(handleSCGIRequest, port)
     d.register(j.asyncSCGI)
     echo("Jester is making jokes for scgi at localhost" & appName & ":" & $port)
 
@@ -389,7 +391,7 @@ template setDefaultResp(): stmt =
   result[3] = ""
 
 template matchAddPattern(meth: THttpCode, path: string,
-                         body: stmt): stmt {.immediate.} =
+                         body: stmt): stmt {.immediate, dirty.} =
   block:
     bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
          setDefaultResp
@@ -402,7 +404,7 @@ template matchAddPattern(meth: THttpCode, path: string,
                                      setDefaultResp()
                                      body)))
 
-template get*(path: string, body: stmt): stmt {.immediate.} =
+template get*(path: string, body: stmt): stmt {.immediate, dirty.} =
   ## Route handler for GET requests.
   ##
   ## ``path`` may contain named parameters, for example ``@param``. These
@@ -411,7 +413,7 @@ template get*(path: string, body: stmt): stmt {.immediate.} =
   bind HttpGet, matchAddPattern
   matchAddPattern(HttpGet, path, body)
 
-template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate.} =
+template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate, dirty.} =
   block:
     bind j, PMatch, TRequest, TCallbackRet, setDefaultResp, HttpGet
     var match: PMatch
@@ -422,7 +424,7 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate.} =
                                      setDefaultResp()
                                      body)))
 
-template post*(path: string, body: stmt): stmt {.immediate.} =
+template post*(path: string, body: stmt): stmt {.immediate, dirty.} =
   ## Route handler for POST requests.
   ##
   ## ``path`` behaves in the same way as with the ``get`` template.
@@ -440,7 +442,7 @@ template resp*(code: THttpCode,
 template resp*(content: string, contentType = "text/html"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code 
   ## and ``contentType`` as the Content-Type.
-  bind TCActionSend, newStringTable
+  bind TCActionSend, newStringTable, strtabs.`[]=`
   result[0] = TCActionSend
   result[1] = Http200
   result[2]["Content-Type"] = contentType
@@ -528,7 +530,7 @@ template attachment*(filename = ""): stmt =
   ## Creates an attachment out of ``filename``. Once the route exits,
   ## ``filename`` will be sent to the person making the request and web browsers
   ## will be hinted to open their Save As dialog box.
-  bind j, getMimetype
+  bind j, getMimetype, extractFilename, splitFile
   result[2]["Content-Disposition"] = "attachment"
   if filename != "":
     var param = "; filename=\"" & extractFilename(filename) & "\""

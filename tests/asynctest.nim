@@ -1,12 +1,11 @@
-import jester, asyncio, strtabs
+import jester, asyncio, nimprof, strtabs
+#include "routes.nim"
 
+get "/":
+  resp "Hello"
 
 var d: PDispatcher = newDispatcher()
-get "/":
-  resp "Hello world"
-
-
-d.register()
+d.register(http = false)
 while true:
   if not d.poll():
     echo("All sockets closed.")
