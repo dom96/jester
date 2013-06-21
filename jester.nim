@@ -87,24 +87,15 @@ j.routes = @[]
 j.initOptions()
 j.mimes = newMimetypes()
 
-proc statusContent[TAnySock: TSocket | PAsyncSocket](c: TAnySock,
-                   status, content: string,
-                   headers: PStringTable, http: bool) {.raises: [].} =
+proc statusContent(c: TSocket, status, content: string, headers: PStringTable, http: bool) =
   var strHeaders = ""
   if headers != nil:
     for key, value in headers:
       strHeaders.add(key & ": " & value & "\c\L")
   var sent = false
-  let message = (if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" &
-                 strHeaders & "\c\L" & content & "\c\L"
-  when TAnySock is TSocket:
-    sent = c.trySend(message)
-  elif TAnySock is PAsyncSocket:
-    try:
-      c.send(message)
-      sent = true
-    except:
-      sent = false
+  sent = c.trySend((if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" & strHeaders & "\c\L")
+  if sent:
+    sent = c.trySend(content & "\c\L")
   
   if sent:
     echo("  ", status, " ", headers)
