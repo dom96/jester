@@ -114,3 +114,11 @@ get "/attachment":
 
 get "/error":
   raise newException(ESynch, "BLAH BLAH BLAH")
+
+getRe regex"^\/irclogs\/([0-9]{2})-([0-9]{2})-([0-9]{4})\.html$":
+  let day = request.matches[0].parseInt()
+  let month = request.matches[1].parseInt()
+  let year = request.matches[2].parseInt() 
+  cond (day <= 31)
+  cond (month <= 12)
+  resp "d: " & $day & "; m: " & $month & "; y:" & $year
