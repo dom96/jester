@@ -222,8 +222,9 @@ proc sendStaticIfExists[Sock: TSocket | PAsyncSocket](client: Sock, isHttp: bool
                        {"Content-type": "text/html"}.newStringTable, isHttp)
 
 template setMatches(req: expr) = req.matches = matches # Workaround.
-proc handleRequest[Sock: TSocket | PAsyncSocket](client: Sock, path, query, body, ip,
-                   reqMethod: string, headers: PStringTable, isHttp: bool) =
+proc handleRequest[TAnySock: TSocket | PAsyncSocket](client: TAnySock,
+                   path, query, body, ip, reqMethod: string,
+                   headers: PStringTable, isHttp: bool) =
   var params = {:}.newStringTable()
   try:
     for key, val in cgi.decodeData(query):
@@ -268,7 +269,14 @@ proc handleRequest[Sock: TSocket | PAsyncSocket](client: Sock, path, query, body
     else:
       client.sendStaticIfExists(isHttp, publicRequested)
 
-  client.close()
+  when TAnySock is TSocket:
+    client.close()
+  elif TAnySock is PAsyncSocket:
+    # We may not be able to close here, some data may be left to be sent.
+    if client.isSendDataBuffered:
+      client.setHandleWrite do (s: PAsyncSocket):
+        if not s.isSendDataBuffered: client.close()
+    else: client.close()
 
 proc handleHTTPRequest(s: TServer) =
   handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
