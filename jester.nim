@@ -67,7 +67,9 @@ type
   THttpCode* = enum
     Http200 = "200 OK",
     Http303 = "303 Moved",
+    Http400 = "400 Bad Request",
     Http404 = "404 Not Found",
+    Http500 = "500 Internal Server Error",
     Http502 = "502 Bad Gateway"
 
   TReqMeth = enum
