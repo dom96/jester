@@ -325,23 +325,21 @@ template retryBind(body: stmt): stmt =
       echo("Could not bind socket, retrying in 30 seconds.")
       sleep(30000)
 
-proc run*(appName = "", port = TPort(5000), http = true) =
+proc run*(appName = "", port = TPort(5000), http = true,
+  reuseAddr = true) =
   ## Enters Jester's event loop, this function will run forever.
   ##
   ## ``appName`` determines the path that will be appended to the request
   ## path when matching. This can be overriden by SCGI's ``SCRIPT_NAME`` param.
   ## 
   ## When ``http`` is ``False``, Jester will run as a SCGI app.
-  ##
-  ## **Warning:** Jester sets its own Ctrl+C hook, this may cause problems
-  ## if you override it.
   j.isAsync = false
   j.options.appName = appName
   #setControlCHook(controlCHook)
   if http:
     j.isHttp = true
     retryBind:
-      j.s.open(port)
+      j.s.open(port, reuseAddr = reuseAddr)
     echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
     while true:
       j.s.next()
@@ -349,7 +347,7 @@ proc run*(appName = "", port = TPort(5000), http = true) =
   else:
     j.isHttp = false
     retryBind:
-      j.scgiServer.open(port)
+      j.scgiServer.open(port, reuseAddr = reuseAddr)
     echo("Jester is making jokes for scgi at localhost:" & $port)
     while true:
       try:
@@ -361,15 +359,13 @@ proc run*(appName = "", port = TPort(5000), http = true) =
         echo getStackTrace(getCurrentException())
         break
 
-proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true) =
+proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true,
+  reuseAddr = true) =
   ## Registers Jester with an Asyncio dispatcher.
   ##
   ## This function is the equivalent to ``run`` but it does not enter
   ## Jester's event loop instead registering Jester with a Dispatcher thus
   ## allowing it to be used with asyncio's event loop.
-  ##
-  ## **Warning:** Jester sets its own Ctrl+C hook, this may cause problems
-  ## if you override it.
   j.isAsync = true
   j.options.appName = appName
   #setControlCHook(controlCHook)
@@ -379,12 +375,12 @@ proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true) =
       (proc (server: PAsyncHTTPServer, client: TSocket, 
              path, query: string): bool =
          handleHTTPRequest(j.asyncHTTP)),
-      port)
+      port, reuseAddr = reuseAddr)
     d.register(j.asyncHTTP)
     echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
   else:
     j.isHttp = false
-    j.asyncSCGI = scgi.open(handleSCGIRequest, port)
+    j.asyncSCGI = scgi.open(handleSCGIRequest, port, reuseAddr = reuseAddr)
     d.register(j.asyncSCGI)
     echo("Jester is making jokes for scgi at localhost" & appName & ":" & $port)
 
