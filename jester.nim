@@ -102,7 +102,7 @@ proc statusContent(c: TSocket, status, content: string, headers: PStringTable, h
   if sent:
     echo("  ", status, " ", headers)
   else:
-    echo("Could not send response: ", OSErrorMsg())
+    echo("Could not send response: ", OSErrorMsg(OSLastError()))
   
 proc `$`*(r: TRegexMatch): string = return r.original
 
