@@ -9,6 +9,8 @@ import private/patterns,
 
 from cgi import decodeData, ECgi
 
+export strtabs
+
 type
   TCallbackRet = tuple[action: TCallbackAction, code: THttpCode, 
                        headers: PStringTable, content: string]
