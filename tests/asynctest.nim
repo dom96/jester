@@ -1,5 +1,5 @@
-import jester, asyncio, nimprof, strtabs
-#include "routes.nim"
+import jester, asyncio, os
+include "routes.nim"
 
 get "/":
   resp "Hello"

@@ -12,12 +12,10 @@ from cgi import decodeData, ECgi
 export strtabs
 
 type
-  TCallbackRet = tuple[action: TCallbackAction, code: THttpCode, 
-                       headers: PStringTable, content: string]
-  TCallback = proc (request: var TRequest): TCallbackRet {.nimcall.}
+  TCallback = proc (request: var TRequest, response: PResponse) {.nimcall.}
 
   TJester = object
-    isHttp: bool
+    isHttp*: bool
     case isAsync: bool
     of true:
       asyncHTTP: PAsyncHTTPServer
@@ -66,6 +64,15 @@ type
     cookies*: PStringTable        ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
 
+  PResponse* = ref object
+    case isAsync*: bool
+    of false:
+      client*: TSocket
+    of true:
+      asyncClient*: PAsyncSocket
+    data*: tuple[action: TCallbackAction, code: THttpCode,
+                 headers: PStringTable, content: string]
+
   THttpCode* = enum
     Http200 = "200 OK",
     Http303 = "303 Moved",
@@ -78,7 +85,7 @@ type
     HttpGet = "GET", HttpPost = "POST"
 
   TCallbackAction = enum
-    TCActionSend, TCActionPass, TCActionNothing
+    TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
 
 const jesterVer = "0.1.0"
 
@@ -91,13 +98,30 @@ j.routes = @[]
 j.initOptions()
 j.mimes = newMimetypes()
 
-proc statusContent(c: TSocket, status, content: string, headers: PStringTable, http: bool) =
+proc trySendEx(c: TSocket | PAsyncSocket, data: string): bool =
+  result = true
+  when c is TSocket:
+    assert(not j.isAsync)
+    if not c.trySend(data):
+      result = false
+  else:
+    try:
+      c.send(data)
+    except EOS:
+      result = false
+
+proc sendHeaders(c: TSocket | PAsyncSocket, status: string, headers: PStringTable, http: bool): bool {.raises: [].} =
   var strHeaders = ""
   if headers != nil:
     for key, value in headers:
       strHeaders.add(key & ": " & value & "\c\L")
-  var sent = false
-  sent = c.trySend((if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" & strHeaders & "\c\L")
+  let data = (if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" & strHeaders & "\c\L"
+  result = c.trySendEx(data)
+  if not result:
+    echo("Could not send response: ", OSErrorMsg(OSLastError()))
+
+proc statusContent(c: TSocket | PAsyncSocket, status, content: string, headers: PStringTable, http: bool) =
+  var sent = c.sendHeaders(status, headers, http)
   if sent:
     sent = c.trySend(content & "\c\L")
   
@@ -105,21 +129,42 @@ proc statusContent(c: TSocket, status, content: string, headers: PStringTable, h
     echo("  ", status, " ", headers)
   else:
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
-  
+
+template sendHeaders*(status: THttpCode, headers = {:}.newStringTable) =
+  ## Sends ``status`` and ``headers`` to the client socket immediately.
+  ## The user is then able to send the content immediately to the client on
+  ## the fly through the use of ``response.client``
+  ## (or ``response.asyncClient``).
+  bind TCActionRaw, sendHeaders, j
+  response.data.action = TCActionRaw
+  if response.isAsync:
+    discard sendHeaders(response.asyncClient, $status, headers, j.isHttp)
+  else:
+    discard sendHeaders(response.client, $status, headers, j.isHttp)
+
+template send*(content: string) =
+  ## Sends ``content`` immediately to the client socket.
+  bind TCActionRaw, send
+  response.data.action = TCActionRaw
+  if response.isAsync:
+    response.asyncClient.send(content)
+  else:
+    response.client.send(content)
+
 proc `$`*(r: TRegexMatch): string = return r.original
 
 template guessAction(): stmt =
-  if action == TCActionNothing:
-    if content != "":
-      action = TCActionSend
-      code = Http200
-      if not headers.hasKey("Content-Type"):
-        headers["Content-Type"] = "text/html"
+  if resp.data.action == TCActionNothing:
+    if resp.data.content != "":
+      resp.data.action = TCActionSend
+      resp.data.code = Http200
+      if not resp.data.headers.hasKey("Content-Type"):
+        resp.data.headers["Content-Type"] = "text/html"
     else:
-      action = TCActionSend
-      code = Http502
-      headers = {"Content-Type": "text/html"}.newStringTable
-      content = error($Http502, jesterVer)
+      resp.data.action = TCActionSend
+      resp.data.code = Http502
+      resp.data.headers = {"Content-Type": "text/html"}.newStringTable
+      resp.data.content = error($Http502, jesterVer)
 
 proc stripAppName(path, appName: string): string =
   result = path
@@ -180,14 +225,13 @@ proc createReq(path, body, ip: string, headers,
   else: result.cookies = newStringTable()
 
 template routeReq(): stmt {.dirty.} =
-  var (action, code, headers, content) = (TCActionNothing, http200,
-                                          {:}.newStringTable, "")
+  var resp =
+    when client is TSocket:
+      PResponse(isAsync: false, client: client)
+    else:
+      PResponse(isAsync: true, asyncClient: client)
   try:
-    let (a, c, h, b) = route.c(req)
-    action = a
-    code = c
-    headers = h
-    content = b
+    route.c(req, resp)
   except:
     # Handle any errors by showing them in the browser.
     let traceback = getStackTrace(getCurrentException()).replace("\n", "<br/>\n")
@@ -200,9 +244,13 @@ template routeReq(): stmt {.dirty.} =
     break
   
   guessAction()
-  case action
+  case resp.data.action
   of TCActionSend:
-    client.statusContent($code, content, headers, isHttp)
+    client.statusContent($resp.data.code, resp.data.content,
+                         resp.data.headers, isHttp)
+    matched = true
+    break
+  of TCActionRaw:
     matched = true
     break
   of TCActionPass:
@@ -393,22 +441,22 @@ proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
 
 template setDefaultResp(): stmt =
   bind TCActionNothing, newStringTable
-  result[0] = TCActionNothing
-  result[1] = Http200
-  result[2] = {:}.newStringTable
-  result[3] = ""
+  response.data.action = TCActionNothing
+  response.data.code = Http200
+  response.data.headers = {:}.newStringTable
+  response.data.content = ""
 
 template matchAddPattern(meth: THttpCode, path: string,
                          body: stmt): stmt {.immediate, dirty.} =
   block:
-    bind j, PMatch, TRequest, TCallbackRet, parsePattern, 
+    bind j, PMatch, TRequest, PResponse, parsePattern, 
          setDefaultResp
     var match: PMatch
     new(match)
     match.typ = MSpecial
     match.pattern = parsePattern(path)
 
-    j.routes.add((meth, match, (proc (request: var TRequest): TCallbackRet {.nimcall.} =
+    j.routes.add((meth, match, (proc (request: var TRequest, response: PResponse) {.nimcall.} =
                                      setDefaultResp()
                                      body)))
 
@@ -423,12 +471,12 @@ template get*(path: string, body: stmt): stmt {.immediate, dirty.} =
 
 template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate, dirty.} =
   block:
-    bind j, PMatch, TRequest, TCallbackRet, setDefaultResp, HttpGet
+    bind j, PMatch, TRequest, PResponse, setDefaultResp, HttpGet
     var match: PMatch
     new(match)
     match.typ = MRegex
     match.regexMatch = rePath
-    j.routes.add((HttpGet, match, (proc (request: var TRequest): TCallbackRet =
+    j.routes.add((HttpGet, match, (proc (request: var TRequest, response: PResponse) =
                                      setDefaultResp()
                                      body)))
 
@@ -445,32 +493,32 @@ template resp*(code: THttpCode,
                content: string): stmt =
   ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend, newStringTable
-  result = (TCActionSend, v[0], v[1].newStringTable, v[2])
+  response.data = (TCActionSend, v[0], v[1].newStringTable, v[2])
 
 template resp*(content: string, contentType = "text/html"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code 
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable, strtabs.`[]=`
-  result[0] = TCActionSend
-  result[1] = Http200
-  result[2]["Content-Type"] = contentType
-  result[3] = content
+  response.data[0] = TCActionSend
+  response.data[1] = Http200
+  response.data[2]["Content-Type"] = contentType
+  response.data[3] = content
 
 template resp*(code: THttpCode, content: string,
                contentType = "text/html"): stmt =
   ## Sets ``content`` as the response; ``code`` as the status code 
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable
-  result[0] = TCActionSend
-  result[1] = code
-  result[2]["Content-Type"] = contentType
-  result[3] = content
+  response.data[0] = TCActionSend
+  response.data[1] = code
+  response.data[2]["Content-Type"] = contentType
+  response.data[3] = content
 
 template body*(): expr =
   ## Gets the body of the request.
   ##
   ## **Note:** It's usually a better idea to use the ``resp`` templates.
-  result[3]
+  response.data[3]
   # Unfortunately I cannot explicitly set meta data like I can in `body=` :\
   # This means that it is up to guessAction to infer this if the user adds
   # something to the body for example.
@@ -479,22 +527,22 @@ template headers*(): expr =
   ## Gets the headers of the request.
   ##
   ## **Note:** It's usually a better idea to use the ``resp`` templates.
-  result[2]
+  response.data[2]
 
 template status*(): expr =
   ## Gets the status of the request.
   ##
   ## **Note:** It's usually a better idea to use the ``resp`` templates.
-  result[1]
+  response.data[1]
 
 template redirect*(url: string): stmt =
   ## Redirects to ``url``. Returns from this request handler immediately.
   ## Any set response headers are preserved for this request.
   bind TCActionSend, newStringTable
-  result[0] = TCActionSend
-  result[1] = Http303
-  result[2]["Location"] = url
-  result[3] = ""
+  response.data[0] = TCActionSend
+  response.data[1] = Http303
+  response.data[2]["Location"] = url
+  response.data[3] = ""
   return
 
 template pass*(): stmt =
@@ -502,7 +550,8 @@ template pass*(): stmt =
   ##
   ## If you want to stop this request from going further use ``halt``.
   bind TCActionPass
-  return (TCActionPass, Http404, nil, "")
+  response.data = (TCActionPass, Http404, nil, "")
+  return
 
 template cond*(condition: bool): stmt =
   ## If ``condition`` is ``False`` then ``pass`` will be called,
@@ -516,7 +565,8 @@ template halt*(code: THttpCode,
   ## code will not be executed after calling this template in the current
   ## route.
   bind TCActionSend, newStringTable
-  return (TCActionSend, code, headers.newStringTable, content)
+  response.data = (TCActionSend, code, headers.newStringTable, content)
+  return
 
 template halt*(): stmt =
   ## Halts the execution of this request immediately. Returns a 404.
@@ -539,13 +589,13 @@ template attachment*(filename = ""): stmt =
   ## ``filename`` will be sent to the person making the request and web browsers
   ## will be hinted to open their Save As dialog box.
   bind j, getMimetype, extractFilename, splitFile
-  result[2]["Content-Disposition"] = "attachment"
+  response.data[2]["Content-Disposition"] = "attachment"
   if filename != "":
     var param = "; filename=\"" & extractFilename(filename) & "\""
-    result[2].mget("Content-Disposition").add(param)
+    response.data[2].mget("Content-Disposition").add(param)
     let ext = splitFile(filename).ext
-    if not (result[2]["Content-Type"] != "" or ext == ""):
-      result[2]["Content-Type"] = getMimetype(j.mimes, splitFile(filename).ext)
+    if not (response.data[2]["Content-Type"] != "" or ext == ""):
+      response.data[2]["Content-Type"] = getMimetype(j.mimes, splitFile(filename).ext)
 
 template `@`*(s: string): expr =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be
@@ -607,12 +657,12 @@ proc daysForward*(days: int): TTimeInfo =
 template setCookie*(name, value: string, expires: TTimeInfo): stmt =
   ## Creates a cookie which stores ``value`` under ``name``.
   bind setCookie
-  if result[2].hasKey("Set-Cookie"):
+  if response.data[2].hasKey("Set-Cookie"):
     # A wee bit of a hack here. Multiple Set-Cookie headers are allowed.
-    result[2].mget("Set-Cookie").add("\c\L" &
+    response.data[2].mget("Set-Cookie").add("\c\L" &
         setCookie(name, value, expires, noName = false))
-  else:  
-    result[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
+  else:
+    response.data[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
 
 proc normalizeUri*(uri: string): string =
   ## Remove any leading ``/``.
