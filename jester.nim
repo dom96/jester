@@ -98,17 +98,17 @@ j.routes = @[]
 j.initOptions()
 j.mimes = newMimetypes()
 
-proc trySendEx(c: TSocket | PAsyncSocket, data: string): bool =
+proc trySendEx(c: TSocket, data: string): bool =
   result = true
-  when c is TSocket:
-    assert(not j.isAsync)
-    if not c.trySend(data):
-      result = false
-  else:
-    try:
-      c.send(data)
-    except EOS:
-      result = false
+  if not c.trySend(data):
+    result = false
+
+proc trySendEx(c: PAsyncSocket, data: string): bool =
+  result = true
+  try:
+    c.send(data)
+  except EOS:
+    result = false
 
 proc sendHeaders(c: TSocket | PAsyncSocket, status: string, headers: PStringTable, http: bool): bool {.raises: [].} =
   var strHeaders = ""
