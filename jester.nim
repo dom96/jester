@@ -130,7 +130,7 @@ proc statusContent(c: TSocket | PAsyncSocket, status, content: string, headers: 
   else:
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
 
-template sendHeaders*(status: THttpCode, headers = {:}.newStringTable) =
+template sendHeaders*(status: THttpCode, headers: PStringTable) =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``
@@ -141,6 +141,16 @@ template sendHeaders*(status: THttpCode, headers = {:}.newStringTable) =
     discard sendHeaders(response.asyncClient, $status, headers, j.isHttp)
   else:
     discard sendHeaders(response.client, $status, headers, j.isHttp)
+
+template sendHeaders*(status: THttpCode) =
+  ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
+  ## client socket immediately.
+  sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
+
+template sendHeaders*() =
+  ## Sends ``Http200`` and ``Content-Type: text/html`` as the headers to the
+  ## client socket immediately.
+  sendHeaders(Http200)
 
 template send*(content: string) =
   ## Sends ``content`` immediately to the client socket.

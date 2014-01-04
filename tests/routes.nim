@@ -116,7 +116,7 @@ get "/error":
   raise newException(ESynch, "BLAH BLAH BLAH")
 
 get "/live":
-  sendHeaders(Http200)
+  sendHeaders()
   for i in 0 .. 10:
     send("The number is: " & $i & "</br>")
     sleep(1000)
