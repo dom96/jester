@@ -12,7 +12,7 @@ from cgi import decodeData, ECgi
 export strtabs
 
 type
-  TCallback = proc (request: var TRequest, response: PResponse) {.nimcall.}
+  TCallback = proc (request: var TRequest, response: PResponse) {.closure.}
 
   TJester = object
     isHttp*: bool
@@ -466,7 +466,7 @@ template matchAddPattern(meth: THttpCode, path: string,
     match.typ = MSpecial
     match.pattern = parsePattern(path)
 
-    j.routes.add((meth, match, (proc (request: var TRequest, response: PResponse) {.nimcall.} =
+    j.routes.add((meth, match, (proc (request: var TRequest, response: PResponse) {.closure.} =
                                      setDefaultResp()
                                      body)))
 
