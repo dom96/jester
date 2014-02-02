@@ -218,7 +218,9 @@ proc createReq(path, body, ip: string, headers,
       result.appName = headers["SCRIPT_NAME"]
     result.headers = renameHeaders(headers)
   if result.headers["Content-Type"].startswith("application/x-www-form-urlencoded"):
-    parseUrlQuery(body, result.params)
+    try:
+      parseUrlQuery(body, result.params)
+    except: echo("[Warning] Could not parse URL query.")
   elif result.headers["Content-Type"].startsWith("multipart/form-data"):
     result.formData = parseMPFD(result.headers["Content-Type"], body)
   if result.headers["SERVER_PORT"] != "": 

@@ -14,7 +14,8 @@ proc parseUrlQuery*(query: string, result: var PStringTable) =
     var val = ""
     i += query.parseUntil(key, '=', i)
     if query[i] != '=':
-      raise newException(EInvalidValue, "Expected '=' at " & $i)
+      raise newException(EInvalidValue, "Expected '=' at " & $i &
+                         " but got: " & $query[i])
     inc(i) # Skip =
     i += query.parseUntil(val, '&', i)
     inc(i) # Skip &
