@@ -90,7 +90,7 @@ type
 const jesterVer = "0.1.0"
 
 proc initOptions(j: var TJester) =
-  j.options.staticDir = getAppDir() / "public"
+  j.options.staticDir = getCurrentDir() / "public"
   j.options.appName = ""
   
 var j: TJester
