@@ -238,7 +238,7 @@ proc createReq(path, body, ip: string, headers,
 
 template routeReq(): stmt {.dirty.} =
   var resp =
-    when client is TSocket:
+    when TAnySock is TSocket:
       PResponse(isAsync: false, client: client)
     else:
       PResponse(isAsync: true, asyncClient: client)
