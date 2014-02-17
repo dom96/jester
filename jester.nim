@@ -107,7 +107,7 @@ proc trySendEx(c: PAsyncSocket, data: string): bool =
   result = true
   try:
     c.send(data)
-  except EOS:
+  except EOS, ESSL:
     result = false
 
 proc sendHeaders(c: TSocket | PAsyncSocket, status: string, headers: PStringTable, http: bool): bool {.raises: [].} =
