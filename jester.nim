@@ -105,10 +105,16 @@ proc trySendEx(c: TSocket, data: string): bool =
 
 proc trySendEx(c: PAsyncSocket, data: string): bool =
   result = true
-  try:
-    c.send(data)
-  except EOS, ESSL:
-    result = false
+  when defined(ssl):
+    try:
+      c.send(data)
+    except EOS, ESSL:
+      result = false
+  else:
+    try:
+      c.send(data)
+    except EOS:
+      result = false
 
 proc sendHeaders(c: TSocket | PAsyncSocket, status: string, headers: PStringTable, http: bool): bool {.raises: [].} =
   var strHeaders = ""
