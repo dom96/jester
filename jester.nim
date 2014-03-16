@@ -173,7 +173,7 @@ template ttyl*() =
   response.data.action = TCActionLater
   
 template finished*() =
-  ## Finished now so close the socket
+  ## Finished now so send the response and close the socket
   bind statusContent
   statusContent(response.client, $response.data.code, response.data.content,
                                 response.data.headers, true)
