@@ -136,6 +136,12 @@ proc statusContent(c: TSocket | PAsyncSocket, status, content: string, headers: 
   else:
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
 
+proc finish*(response: PResponse) =
+  ## Finished now so send the response and close the socket  
+  response.client.statusContent($response.data.code, response.data.content,
+                                response.data.headers, true)
+  response.client.close()
+
 template sendHeaders*(status: THttpCode, headers: PStringTable) =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
@@ -172,12 +178,6 @@ template ttyl*() =
   bind TCActionLater
   response.data.action = TCActionLater
   
-template finished*() =
-  ## Finished now so send the response and close the socket
-  bind statusContent
-  statusContent(response.client, $response.data.code, response.data.content,
-                                response.data.headers, true)
-  response.client.close()
 
 proc `$`*(r: TRegexMatch): string = return r.original
 
