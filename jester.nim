@@ -127,8 +127,6 @@ proc sendHeaders(c: TSocket | PAsyncSocket, status: string, headers: PStringTabl
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
 
 proc statusContent(c: TSocket | PAsyncSocket, status, content: string, headers: PStringTable, http: bool) =
-  ## Send ``headers`` and if successful send content with code ``status``; write status message to stdout
-  ## Note: this is mainly for 
   var sent = c.sendHeaders(status, headers, http)
   if sent:
     sent = c.trySend(content & "\c\L")
@@ -177,9 +175,6 @@ template ttyl*() =
 template finished*() =
   ## Finished now so close the socket
   bind statusContent
-  #  response.client.statusContent($response.data.code, response.data.content,
-  #                              response.data.headers, true)
-
   statusContent(response.client, $response.data.code, response.data.content,
                                 response.data.headers, true)
   response.client.close()
