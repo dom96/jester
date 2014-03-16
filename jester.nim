@@ -494,7 +494,7 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate, dirty.} =
     new(match)
     match.typ = MRegex
     match.regexMatch = rePath
-    j.routes.add((HttpGet, match, (proc (request: var TRequest, response: PResponse) =
+    j.routes.add((HttpGet, match, (proc (request: var TRequest, response: PResponse) {.closure.} =
                                      setDefaultResp()
                                      body)))
 
