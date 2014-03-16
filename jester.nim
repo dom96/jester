@@ -357,14 +357,15 @@ proc handleRequest[TAnySock: TSocket | PAsyncSocket](client: TAnySock,
     else:
       client.sendStaticIfExists(isHttp, publicRequested)
 
-  when TAnySock is TSocket:
-    if not leaveOpen: client.close()
-  elif TAnySock is PAsyncSocket:
-    # We may not be able to close here, some data may be left to be sent.
-    if client.isSendDataBuffered:
-      client.setHandleWrite do (s: PAsyncSocket):
-        if not leaveOpen and not s.isSendDataBuffered: client.close()
-    elif not leaveOpen: client.close()
+  if not leaveOpen:
+    when TAnySock is TSocket:
+      client.close()
+    elif TAnySock is PAsyncSocket:
+      # We may not be able to close here, some data may be left to be sent.
+      if client.isSendDataBuffered:
+        client.setHandleWrite do (s: PAsyncSocket):
+          if not s.isSendDataBuffered: client.close()
+      else: client.close()
 
 proc handleHTTPRequest(s: TServer) =
   handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
