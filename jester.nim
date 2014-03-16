@@ -85,7 +85,7 @@ type
     HttpGet = "GET", HttpPost = "POST"
 
   TCallbackAction = enum
-    TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
+    TCActionSend, TCActionRaw, TCActionPass, TCActionLater, TCActionNothing
 
 const jesterVer = "0.1.0"
 
@@ -127,6 +127,8 @@ proc sendHeaders(c: TSocket | PAsyncSocket, status: string, headers: PStringTabl
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
 
 proc statusContent(c: TSocket | PAsyncSocket, status, content: string, headers: PStringTable, http: bool) =
+  ## Send ``headers`` and if successful send content with code ``status``; write status message to stdout
+  ## Note: this is mainly for 
   var sent = c.sendHeaders(status, headers, http)
   if sent:
     sent = c.trySend(content & "\c\L")
@@ -166,6 +168,21 @@ template send*(content: string) =
     response.asyncClient.send(content)
   else:
     response.client.send(content)
+
+template ttyl*() =
+  ## Talk to you later; will finish the response later, so don't close the socket now
+  bind TCActionLater
+  response.data.action = TCActionLater
+  
+template finished*() =
+  ## Finished now so close the socket
+  bind statusContent
+  #  response.client.statusContent($response.data.code, response.data.content,
+  #                              response.data.headers, true)
+
+  statusContent(response.client, $response.data.code, response.data.content,
+                                response.data.headers, true)
+  response.client.close()
 
 proc `$`*(r: TRegexMatch): string = return r.original
 
@@ -271,6 +288,10 @@ template routeReq(): stmt {.dirty.} =
   of TCActionRaw:
     matched = true
     break
+  of TCActionLater:
+    matched = true
+    leaveOpen = true
+    break
   of TCActionPass:
     matched = false
   of TCActionNothing:
@@ -303,6 +324,8 @@ proc handleRequest[TAnySock: TSocket | PAsyncSocket](client: TAnySock,
     echo("[Warning] Incorrect query. Got: ", query)
 
   var matched = false
+  var leaveOpen = false
+  
   var req: TRequest
   try:
     req = createReq(path, body, ip, headers, params, isHttp)
@@ -340,13 +363,13 @@ proc handleRequest[TAnySock: TSocket | PAsyncSocket](client: TAnySock,
       client.sendStaticIfExists(isHttp, publicRequested)
 
   when TAnySock is TSocket:
-    client.close()
+    if not leaveOpen: client.close()
   elif TAnySock is PAsyncSocket:
     # We may not be able to close here, some data may be left to be sent.
     if client.isSendDataBuffered:
       client.setHandleWrite do (s: PAsyncSocket):
-        if not s.isSendDataBuffered: client.close()
-    else: client.close()
+        if not leaveOpen and not s.isSendDataBuffered: client.close()
+    elif not leaveOpen: client.close()
 
 proc handleHTTPRequest(s: TServer) =
   handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
