@@ -113,7 +113,8 @@ get "/attachment":
   resp "blah"
 
 get "/error":
-  raise newException(ESynch, "BLAH BLAH BLAH")
+  proc blah = raise newException(ESynch, "BLAH BLAH BLAH")
+  blah()
 
 get "/live":
   sendHeaders()

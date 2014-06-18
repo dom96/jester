@@ -1,7 +1,7 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import httpserver, sockets, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi, cookies, times, mimetypes, asyncio
+import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
+        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch
 
 import private/patterns, 
        private/errorpages,
@@ -10,24 +10,18 @@ import private/patterns,
 from cgi import decodeData, ECgi
 
 export strtabs
+export THttpCode
 
 type
-  TCallback = proc (request: var TRequest, response: PResponse) {.closure.}
-
+  TRoute = tuple[meth: TReqMeth, m: PMatch, c: TCallback]
+  
   TJester = object
     isHttp*: bool
-    case isAsync: bool
-    of true:
-      asyncHTTP: PAsyncHTTPServer
-      asyncSCGI: PAsyncScgiState
-    of false:
-      dummyA, dummyB: pointer # workaround a Nimrod API issue
-      s: TServer
-      scgiServer: TScgiState
-    routes*: seq[tuple[meth: TReqMeth, m: PMatch, c: TCallback]]
+    httpServer*: PAsyncHttpServer
+    routes*: seq[TRoute]
     options: TOptions
     mimes*: TMimeDb
-    
+
   TOptions = object
     staticDir: string # By default ./public
     appName: string
@@ -47,7 +41,7 @@ type
   
   TMultiData* = TTable[string, tuple[fields: PStringTable, body: string]]
   
-  TRequest* = object
+  PRequest* = ref object
     params*: PStringTable         ## Parameters from the pattern, but also the
                                   ## query string.
     matches*: array[0..9, string] ## Matches if this is a regex pattern.
@@ -65,27 +59,17 @@ type
     ip*: string                   ## IP address of the requesting client.
 
   PResponse* = ref object
-    case isAsync*: bool
-    of false:
-      client*: TSocket
-    of true:
-      asyncClient*: PAsyncSocket
+    client*: PAsyncSocket ## For raw mode.
     data*: tuple[action: TCallbackAction, code: THttpCode,
                  headers: PStringTable, content: string]
-
-  THttpCode* = enum
-    Http200 = "200 OK",
-    Http303 = "303 Moved",
-    Http400 = "400 Bad Request",
-    Http404 = "404 Not Found",
-    Http500 = "500 Internal Server Error",
-    Http502 = "502 Bad Gateway"
 
   TReqMeth = enum
     HttpGet = "GET", HttpPost = "POST"
 
   TCallbackAction = enum
-    TCActionSend, TCActionRaw, TCActionPass, TCActionLater, TCActionNothing
+    TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
+
+  TCallback = proc (request: jester.PRequest, response: PResponse): PFuture[void]
 
 const jesterVer = "0.1.0"
 
@@ -98,61 +82,42 @@ j.routes = @[]
 j.initOptions()
 j.mimes = newMimetypes()
 
-proc trySendEx(c: TSocket, data: string): bool =
-  result = true
-  if not c.trySend(data):
-    result = false
+proc sendHeaders(c: PAsyncSocket, status: string, headers: PStringTable,
+                 http: bool): PFuture[bool] {.async.} =
+  try:
+    var strHeaders = ""
+    if headers != nil:
+      for key, value in headers:
+        strHeaders.add(key & ": " & value & "\c\L")
+    let data = (if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" & strHeaders & "\c\L"
+    await c.send(data)
+    result = true
+  except:
+    echo("Could not send response: ", getCurrentExceptionMsg())
 
-proc trySendEx(c: PAsyncSocket, data: string): bool =
-  result = true
-  when defined(ssl):
-    try:
-      c.send(data)
-    except EOS, ESSL:
-      result = false
-  else:
-    try:
-      c.send(data)
-    except EOS:
-      result = false
-
-proc sendHeaders(c: TSocket | PAsyncSocket, status: string, headers: PStringTable, http: bool): bool {.raises: [].} =
-  var strHeaders = ""
-  if headers != nil:
-    for key, value in headers:
-      strHeaders.add(key & ": " & value & "\c\L")
-  let data = (if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" & strHeaders & "\c\L"
-  result = c.trySendEx(data)
-  if not result:
-    echo("Could not send response: ", OSErrorMsg(OSLastError()))
-
-proc statusContent(c: TSocket | PAsyncSocket, status, content: string, headers: PStringTable, http: bool) =
-  var sent = c.sendHeaders(status, headers, http)
+proc statusContent(c: PAsyncSocket, status, content: string,
+                   headers: PStringTable, http: bool) {.async.} =
+  var sent = await c.sendHeaders(status, headers, http)
   if sent:
-    sent = c.trySend(content & "\c\L")
+    try:
+      await c.send(content & "\c\L")
+      sent = true
+    except:
+      sent = false
   
   if sent:
     echo("  ", status, " ", headers)
   else:
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
 
-proc finish*(response: PResponse) =
-  ## Finished now so send the response and close the socket  
-  response.client.statusContent($response.data.code, response.data.content,
-                                response.data.headers, true)
-  response.client.close()
-
 template sendHeaders*(status: THttpCode, headers: PStringTable) =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
-  ## the fly through the use of ``response.client``
-  ## (or ``response.asyncClient``).
-  bind TCActionRaw, sendHeaders, j
-  response.data.action = TCActionRaw
-  if response.isAsync:
-    discard sendHeaders(response.asyncClient, $status, headers, j.isHttp)
-  else:
-    discard sendHeaders(response.client, $status, headers, j.isHttp)
+  ## the fly through the use of ``response.client``.
+  proc foo {.async.} =
+    response.data.action = TCActionRaw
+    discard await sendHeaders(response.client, $status, headers, j.isHttp)
+  yield foo() # Pretty hackish. We assume we are in an async proc.
 
 template sendHeaders*(status: THttpCode) =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
@@ -166,33 +131,26 @@ template sendHeaders*() =
 
 template send*(content: string) =
   ## Sends ``content`` immediately to the client socket.
-  bind TCActionRaw, send
-  response.data.action = TCActionRaw
-  if response.isAsync:
-    response.asyncClient.send(content)
-  else:
-    response.client.send(content)
-
-template ttyl*() =
-  ## Talk to you later; will finish the response later, so don't close the socket now
-  bind TCActionLater
-  response.data.action = TCActionLater
-  
+  proc foo {.async.} =
+    response.data.action = TCActionRaw
+    await response.client.send(content)
+  yield foo()
 
 proc `$`*(r: TRegexMatch): string = return r.original
 
-template guessAction(): stmt =
-  if resp.data.action == TCActionNothing:
-    if resp.data.content != "":
-      resp.data.action = TCActionSend
-      resp.data.code = Http200
-      if not resp.data.headers.hasKey("Content-Type"):
-        resp.data.headers["Content-Type"] = "text/html"
+proc guessAction(resp: PResponse): PResponse =
+  result = resp
+  if result.data.action == TCActionNothing:
+    if result.data.content != "":
+      result.data.action = TCActionSend
+      result.data.code = Http200
+      if not result.data.headers.hasKey("Content-Type"):
+        result.data.headers["Content-Type"] = "text/html"
     else:
-      resp.data.action = TCActionSend
-      resp.data.code = Http502
-      resp.data.headers = {"Content-Type": "text/html"}.newStringTable
-      resp.data.content = error($Http502, jesterVer)
+      result.data.action = TCActionSend
+      result.data.code = Http502
+      result.data.headers = {"Content-Type": "text/html"}.newStringTable
+      result.data.content = error($Http502, jesterVer)
 
 proc stripAppName(path, appName: string): string =
   result = path
@@ -225,7 +183,8 @@ proc renameHeaders(headers: PStringTable): PStringTable =
       #result[key] = val
 
 proc createReq(path, body, ip: string, headers, 
-               params: PStringTable, isHttp: bool): TRequest =
+               params: PStringTable, isHttp: bool): PRequest =
+  new(result)
   result.params = params
   result.body = body
   result.appName = j.options.appName
@@ -254,63 +213,62 @@ proc createReq(path, body, ip: string, headers,
     result.cookies = parseCookies(result.headers["Cookie"])
   else: result.cookies = newStringTable()
 
-template routeReq(): stmt {.dirty.} =
-  var resp =
-    when TAnySock is TSocket:
-      PResponse(isAsync: false, client: client)
-    else:
-      PResponse(isAsync: true, asyncClient: client)
+proc routeReq(route: TRoute, client: PAsyncSocket,
+              req: jester.PRequest, isHttp: bool): PFuture[bool] {.async.} =
+  var resp = PResponse(client: client)
+
+  var failed = false # Workaround for no 'await' in 'except' body
+  var error = ""
+  
   try:
-    route.c(req, resp)
+    await route.c(req, resp)
   except:
     # Handle any errors by showing them in the browser.
+    # TODO: Improve the look of this.
     let traceback = getStackTrace(getCurrentException()).replace("\n", "<br/>\n")
-    let error = traceback & getCurrentExceptionMsg()
-    client.statusContent($Http502, 
+    error = traceback & getCurrentExceptionMsg()
+    failed = true
+
+  if failed:
+    await client.statusContent($Http502, 
         routeException(error, jesterVer), 
         {"Content-Type": "text/html"}.newStringTable, isHttp)
     
-    matched = true
-    break
+    return true
   
-  guessAction()
+  resp = guessAction(resp)
   case resp.data.action
   of TCActionSend:
-    client.statusContent($resp.data.code, resp.data.content,
-                         resp.data.headers, isHttp)
-    matched = true
-    break
+    await client.statusContent($resp.data.code, resp.data.content,
+                               resp.data.headers, isHttp)
+    result = true
   of TCActionRaw:
-    matched = true
-    break
-  of TCActionLater:
-    matched = true
-    leaveOpen = true
-    break
+    result = true
   of TCActionPass:
-    matched = false
+    result = false
   of TCActionNothing:
     assert(false)
 
-proc sendStaticIfExists[Sock: TSocket | PAsyncSocket](client: Sock, isHttp: bool,
-                                                      paths: varargs[string]) =
+# TODO: Cannot capture 'paths: varargs[string]' here.
+proc sendStaticIfExists(client: PAsyncSocket, isHttp: bool,
+                        paths: seq[string]) {.async.} =
   for p in paths:
     if existsFile(p):
       var file = readFile(p)
       # TODO: Check file permissions
       let mimetype = j.mimes.getMimetype(p.splitFile.ext[1 .. -1])
-      client.statusContent($Http200, file,
+      await client.statusContent($Http200, file,
                            {"Content-type": mimetype}.newStringTable, isHttp)
       return
   
   # If we get to here then no match could be found.
-  client.statusContent($Http404, error($Http404, jesterVer), 
+  await client.statusContent($Http404, error($Http404, jesterVer), 
                        {"Content-type": "text/html"}.newStringTable, isHttp)
 
 template setMatches(req: expr) = req.matches = matches # Workaround.
-proc handleRequest[TAnySock: TSocket | PAsyncSocket](client: TAnySock,
+proc handleRequest(client: PAsyncSocket,
                    path, query, body, ip, reqMethod: string,
-                   headers: PStringTable, isHttp: bool) =
+                   headers: PStringTable, isHttp: bool) {.async.} =
   var params = {:}.newStringTable()
   try:
     for key, val in cgi.decodeData(query):
@@ -319,9 +277,8 @@ proc handleRequest[TAnySock: TSocket | PAsyncSocket](client: TAnySock,
     echo("[Warning] Incorrect query. Got: ", query)
 
   var matched = false
-  var leaveOpen = false
   
-  var req: TRequest
+  var req: PRequest
   try:
     req = createReq(path, body, ip, headers, params, isHttp)
   except EInvalidValue:
@@ -338,65 +295,46 @@ proc handleRequest[TAnySock: TSocket | PAsyncSocket](client: TAnySock,
       of MRegex:
         if req.pathInfo =~ route.m.regexMatch.compiled:
           setMatches(req)
-          routeReq()
+          matched = await routeReq(route, client, req, isHttp)
 
       of MSpecial:
-        let (match, params) = route.m.pattern.match(req.pathInfo)
-        if match:
-          for key, val in params:
+        let ret = route.m.pattern.match(req.pathInfo)
+        if ret.matched:
+          for key, val in ret.params:
             req.params[key] = val
-          routeReq()
+          matched = await routeReq(route, client, req, isHttp)
+      if matched: break
   
   if not matched:
     # Find static file.
     # TODO: Caching.
     let publicRequested = j.options.staticDir / req.pathInfo
     if existsDir(publicRequested):
-      client.sendStaticIfExists(isHttp, publicRequested / "index.html",
-                                        publicRequested / "index.htm")
+      await client.sendStaticIfExists(isHttp, @[publicRequested / "index.html",
+                                        publicRequested / "index.htm"])
     else:
-      client.sendStaticIfExists(isHttp, publicRequested)
+      await client.sendStaticIfExists(isHttp, @[publicRequested])
 
-  if not leaveOpen:
-    when TAnySock is TSocket:
-      client.close()
-    elif TAnySock is PAsyncSocket:
-      # We may not be able to close here, some data may be left to be sent.
-      if client.isSendDataBuffered:
-        client.setHandleWrite do (s: PAsyncSocket):
-          if not s.isSendDataBuffered: client.close()
-      else: client.close()
+  ## The use of ``await`` above ensures that all data was sent and that we
+  ## can safely close the socket here.
+  client.close()
 
-proc handleHTTPRequest(s: TServer) =
-  handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
-                s.headers, true)
-
-proc handleSCGIRequest(s: TScgiState) =
-  handleRequest(s.client, s.headers["DOCUMENT_URI"], s.headers["QUERY_STRING"], 
-                s.input,  s.headers["REMOTE_ADDR"],
-                s.headers["REQUEST_METHOD"], s.headers, false)
 
 proc handleSCGIRequest(client: PAsyncSocket, input: string, headers: PStringTable) =
   handleRequest(client, headers["DOCUMENT_URI"], headers["QUERY_STRING"],
                 input, headers["REMOTE_ADDR"], headers["REQUEST_METHOD"], headers,
                 false)
 
-proc handleHTTPRequest(s: PAsyncHTTPServer) =
-  handleRequest(s.client, s.path, s.query, s.body, s.ip, s.reqMethod,
-                s.headers, true)
+proc handleHTTPRequest(req: asynchttpserver.TRequest) {.async.} =
+  await handleRequest(req.client, req.url.path, req.url.query, req.body,
+                      req.hostname, req.reqMethod, req.headers, true)
 
 proc close*() =
   ## Terminates a running instance of jester.
   if j.isHttp:
-    if j.isAsync:
-      j.asyncHTTP.close()
-    else:
-      j.s.close()
+    j.httpServer.close()
   else:
-    if j.isAsync:
-      j.asyncSCGI.close()
-    else:
-      j.scgiServer.close()
+    # TODO:
   echo("Jester finishes his performance.")
 
 proc controlCHook() {.noconv.} =
@@ -414,63 +352,20 @@ template retryBind(body: stmt): stmt =
       echo("Could not bind socket, retrying in 30 seconds.")
       sleep(30000)
 
-proc run*(appName = "", port = TPort(5000), http = true,
-  reuseAddr = true) =
-  ## Enters Jester's event loop, this function will run forever.
-  ##
-  ## ``appName`` determines the path that will be appended to the request
-  ## path when matching. This can be overriden by SCGI's ``SCRIPT_NAME`` param.
-  ## 
-  ## When ``http`` is ``False``, Jester will run as a SCGI app.
-  j.isAsync = false
+proc serve*(appName = "", port = TPort(5000), http = true,
+  reuseAddr = true) {.async.} =
+  ## Creates a new async http server or scgi server instance and registers
+  ## it with the dispatcher.
   j.options.appName = appName
   #setControlCHook(controlCHook)
   if http:
     j.isHttp = true
-    retryBind:
-      j.s.open(port, reuseAddr = reuseAddr)
-    echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
-    while true:
-      j.s.next()
-      handleHTTPRequest(j.s)
-  else:
-    j.isHttp = false
-    retryBind:
-      j.scgiServer.open(port, reuseAddr = reuseAddr)
-    echo("Jester is making jokes for scgi at localhost:" & $port)
-    while true:
-      try:
-        if j.scgiServer.next():
-          handleSCGIRequest(j.scgiServer)
-      except EScgi:
-        echo("[Warning] SCGI gave error: ", getCurrentExceptionMsg()) 
-      except:
-        echo getStackTrace(getCurrentException())
-        break
-
-proc register*(d: PDispatcher, appName = "", port = TPort(5000), http = true,
-  reuseAddr = true) =
-  ## Registers Jester with an Asyncio dispatcher.
-  ##
-  ## This function is the equivalent to ``run`` but it does not enter
-  ## Jester's event loop instead registering Jester with a Dispatcher thus
-  ## allowing it to be used with asyncio's event loop.
-  j.isAsync = true
-  j.options.appName = appName
-  #setControlCHook(controlCHook)
-  if http:
-    j.isHttp = true
-    j.asyncHTTP = asyncHTTPServer(
-      (proc (server: PAsyncHTTPServer, client: TSocket, 
-             path, query: string): bool =
-         handleHTTPRequest(j.asyncHTTP)),
-      port, reuseAddr = reuseAddr)
-    d.register(j.asyncHTTP)
+    j.httpServer = newAsyncHttpServer()
+    await j.httpServer.serve(port, handleHTTPRequest)
     echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
   else:
     j.isHttp = false
-    j.asyncSCGI = scgi.open(handleSCGIRequest, port, reuseAddr = reuseAddr)
-    d.register(j.asyncSCGI)
+    # TODO: 
     echo("Jester is making jokes for scgi at localhost" & appName & ":" & $port)
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
@@ -487,15 +382,18 @@ template matchAddPattern(meth: THttpCode, path: string,
                          body: stmt): stmt {.immediate, dirty.} =
   block:
     bind j, PMatch, TRequest, PResponse, parsePattern, 
-         setDefaultResp
+         setDefaultResp, TRoute, TReqMeth
     var match: PMatch
     new(match)
     match.typ = MSpecial
     match.pattern = parsePattern(path)
 
-    j.routes.add((meth, match, (proc (request: var TRequest, response: PResponse) {.closure.} =
-                                     setDefaultResp()
-                                     body)))
+    proc cb(request: jester.PRequest,
+          response: PResponse): PFuture[void] {.closure, async.} =
+      setDefaultResp()
+      body
+
+    j.routes.add((meth, match, cb))
 
 template get*(path: string, body: stmt): stmt {.immediate, dirty.} =
   ## Route handler for GET requests.
@@ -513,9 +411,12 @@ template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate, dirty.} =
     new(match)
     match.typ = MRegex
     match.regexMatch = rePath
-    j.routes.add((HttpGet, match, (proc (request: var TRequest, response: PResponse) {.closure.} =
-                                     setDefaultResp()
-                                     body)))
+
+    proc cb(request: jester.PRequest,
+            response: PResponse): PFuture[void] {.closure, async.} =
+      setDefaultResp()
+      body
+    j.routes.add((HttpGet, match, cb))
 
 template post*(path: string, body: stmt): stmt {.immediate, dirty.} =
   ## Route handler for POST requests.
@@ -656,7 +557,8 @@ proc getStaticDir*(): string =
   ## ``./public`` by default.
   return j.options.staticDir
 
-proc makeUri*(request: TRequest, address = "", absolute = true, addScriptName = true): string =
+proc makeUri*(request: jester.PRequest, address = "", absolute = true,
+              addScriptName = true): string =
   ## Creates a URI based on the current request. If ``absolute`` is true it will
   ## add the scheme (Usually 'http://'), `request.host` and `request.port`.
   ## If ``addScriptName`` is true `request.appName` will be prepended before 
@@ -678,7 +580,8 @@ proc makeUri*(request: TRequest, address = "", absolute = true, addScriptName = 
   url.add(if address != "": address.TUrl else: request.pathInfo.TUrl)
   return string(url)
 
-proc makeUri*(request: TRequest, address: TUrl = TUrl(""), absolute = true, addScriptName = true): string =
+proc makeUri*(request: jester.PRequest, address: TUrl = TUrl(""),
+              absolute = true, addScriptName = true): string =
   ## Overload for TUrl.
   return request.makeUri($address, absolute, addScriptName)
 
