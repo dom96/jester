@@ -5,6 +5,7 @@ get "/":
 
 get "/halt":
   halt Http502, "I'm sorry, this page has been halted."
+  resp "test"
 
 get "/halt":
   resp "<h1>Not halted!</h1>"
@@ -12,112 +13,115 @@ get "/halt":
 get "/awesome":
   resp "<h1>Awesomness :D</h1>"
 
-get "/profile/@id/@value?/?":
-  var html = ""
-  html.add "<b>Msg: </b>" & @"id" &
-           "<br/><b>Name: </b>" & @"value"
-  html.add "<br/>"
-  html.add "<b>Params: </b>" & $request.params
+when false:
+  get "/profile/@id/@value?/?":
+    var html = ""
+    html.add "<b>Msg: </b>" & @"id" &
+             "<br/><b>Name: </b>" & @"value"
+    html.add "<br/>"
+    html.add "<b>Params: </b>" & $request.params
 
-  resp html
+    resp html
 
-get "/guess/@who":
-  if @"who" != "Frank": pass()
-  resp "You've found me!"
+  get "/guess/@who":
+    if @"who" != "Frank": pass()
+    resp "You've found me!"
 
-get "/guess/@_":
-  resp "Haha. You will never find me!"
+  get "/guess/@_":
+    resp "Haha. You will never find me!"
 
-get "/test42/somefile.?@ext?/?":
-  resp "<b>Params: </b>" & $request.params
+  get "/test42/somefile.?@ext?/?":
+    resp "<b>Params: </b>" & $request.params
 
-getRe regex"/regex/(.+?)/to/(.+?)$":
-  echo("Got matches ", repr(request.matches))
+  getRe regex"/regex/(.+?)/to/(.+?)$":
+    echo("Got matches ", repr(request.matches))
 
-get "/bodytest/?":
-  for i in 0..10:
-    body.add("<h1>" & $i & "</h1>")
+  get "/bodytest/?":
+    for i in 0..10:
+      body.add("<h1>" & $i & "</h1>")
 
-get "/body":
-  body = "test"
-  body = "this should show up"
+  get "/body":
+    body = "test"
+    body = "this should show up"
 
-get "/nobody/?":
-  echo("NO BODY!! D:")
+  get "/nobody/?":
+    echo("NO BODY!! D:")
 
-get "/headers/?":
-  headers = {"Content-Type": "text/xml"}.newStringTable()
-  body = "<xml>hello</xml>"
+  get "/headers/?":
+    headers = {"Content-Type": "text/xml"}.newStringTable()
+    body = "<xml>hello</xml>"
 
-get "/redirect/@url/?":
-  redirect(uri(@"url"))
+  get "/redirect/@url/?":
+    redirect(uri(@"url"))
 
-get "/win":
-  cond random(5) < 3
-  resp "<b>You won!</b>"
+  get "/win":
+    cond random(5) < 3
+    resp "<b>You won!</b>"
 
-get "/win":
-  resp "<b>Try your luck again, loser.</b>"
+  get "/win":
+    resp "<b>Try your luck again, loser.</b>"
 
-# curl -v -F file='blah' http://dom96.co.cc:5000
-# curl -X POST -d '{ "test": 56 }' localhost:5000/post
+  # curl -v -F file='blah' http://dom96.co.cc:5000
+  # curl -X POST -d '{ "test": 56 }' localhost:5000/post
 
-post "/post":
-  body.add "Received: <br/>"
-  body.add($request.formData)
-  body.add "<br/>\n"
-  body.add($request.params)
+  post "/post":
+    body.add "Received: <br/>"
+    body.add($request.formData)
+    body.add "<br/>\n"
+    body.add($request.params)
 
-  status = Http200
+    status = Http200
 
-get "/post":
-  resp """
-<form name="input" action="$1" method="post">
-First name: <input type="text" name="FirstName" value="Mickey" /><br />
-Last name: <input type="text" name="LastName" value="Mouse" /><br />
-<input type="submit" value="Submit" />
-</form>""" % [uri("/post", absolute = false)]
 
-get "/file":
-  resp """
-<form action="/post" method="post"
-enctype="multipart/form-data">
-<label for="file">Filename:</label>
-<input type="file" name="file" id="file" /> 
-<br />
-<input type="submit" name="submit" value="Submit" />
-</form>"""
+  get "/post":
+    resp """
+  <form name="input" action="$1" method="post">
+  First name: <input type="text" name="FirstName" value="Mickey" /><br />
+  Last name: <input type="text" name="LastName" value="Mouse" /><br />
+  <input type="submit" value="Submit" />
+  </form>""" % [uri("/post", absolute = false)]
 
-get "/urltest/@name?":
-  request.appName = "/urltest/"
-  resp uri(@"name")
+  get "/file":
+    resp """
+  <form action="/post" method="post"
+  enctype="multipart/form-data">
+  <label for="file">Filename:</label>
+  <input type="file" name="file" id="file" /> 
+  <br />
+  <input type="submit" name="submit" value="Submit" />
+  </form>"""
 
-get "/showreq":
-  body.add request.path & "<br/>"
-  body.add request.appName & "<br/>"
-  body.add request.pathInfo 
+  get "/urltest/@name?":
+    request.appName = "/urltest/"
+    resp uri(@"name")
 
-get "/session":
-  echo(request.headers)
-  resp($request.cookies)
+  get "/showreq":
+    body.add request.path & "<br/>"
+    body.add request.appName & "<br/>"
+    body.add request.pathInfo 
 
-get "/session/@value":
-  setCookie("test", @"value", daysForward(5))
-  setCookie("test23", @"value", daysForward(5))
-  setCookie("test13", @"value", daysForward(5))
-  setCookie("qerty", @"value", daysForward(5))  
-  resp($request.cookies)
+  get "/session":
+    echo(request.headers)
+    resp($request.cookies)
 
-get "/attachment":
-  attachment "file.html"
-  resp "blah"
+  get "/session/@value":
+    setCookie("test", @"value", daysForward(5))
+    setCookie("test23", @"value", daysForward(5))
+    setCookie("test13", @"value", daysForward(5))
+    setCookie("qerty", @"value", daysForward(5))  
+    resp($request.cookies)
 
-get "/error":
-  proc blah = raise newException(ESynch, "BLAH BLAH BLAH")
-  blah()
+  get "/attachment":
+    attachment "file.html"
+    resp "blah"
 
-get "/live":
-  sendHeaders()
-  for i in 0 .. 10:
-    send("The number is: " & $i & "</br>")
-    sleep(1000)
+  get "/error":
+    proc blah = raise newException(ESynch, "BLAH BLAH BLAH")
+    blah()
+
+when false:
+  get "/live":
+    sendHeaders()
+    for i in 0 .. 10:
+      send("The number is: " & $i & "</br>")
+      sleep(1000)

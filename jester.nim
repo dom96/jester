@@ -97,7 +97,9 @@ proc sendHeaders(c: PAsyncSocket, status: string, headers: PStringTable,
 
 proc statusContent(c: PAsyncSocket, status, content: string,
                    headers: PStringTable, http: bool) {.async.} =
-  var sent = await c.sendHeaders(status, headers, http)
+  var newHeaders = headers
+  newHeaders["Content-Length"] = $content.len
+  var sent = await c.sendHeaders(status, newHeaders, http)
   if sent:
     try:
       await c.send(content & "\c\L")
@@ -110,14 +112,23 @@ proc statusContent(c: PAsyncSocket, status, content: string,
   else:
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
 
+template asyncTransform(body: stmt) =
+  ## This is necessary because the async proc that the body
+  ## of our routes gets put into
+  ## does not get an expanded version of our templates.
+  ## So we must translate our code manually by wrapping it in its
+  ## own async proc... yeah, pretty ugly I know.
+  proc asyncWrapper {.async.} =
+    body
+  yield asyncWrapper()
+
 template sendHeaders*(status: THttpCode, headers: PStringTable) =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
-  proc foo {.async.} =
+  asyncTransform:
     response.data.action = TCActionRaw
     discard await sendHeaders(response.client, $status, headers, j.isHttp)
-  yield foo() # Pretty hackish. We assume we are in an async proc.
 
 template sendHeaders*(status: THttpCode) =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
@@ -131,10 +142,9 @@ template sendHeaders*() =
 
 template send*(content: string) =
   ## Sends ``content`` immediately to the client socket.
-  proc foo {.async.} =
+  asyncTransform:
     response.data.action = TCActionRaw
     await response.client.send(content)
-  yield foo()
 
 proc `$`*(r: TRegexMatch): string = return r.original
 
@@ -219,7 +229,7 @@ proc routeReq(route: TRoute, client: PAsyncSocket,
 
   var failed = false # Workaround for no 'await' in 'except' body
   var error = ""
-  
+  echo("routeReq")
   try:
     await route.c(req, resp)
   except:
@@ -228,14 +238,14 @@ proc routeReq(route: TRoute, client: PAsyncSocket,
     let traceback = getStackTrace(getCurrentException()).replace("\n", "<br/>\n")
     error = traceback & getCurrentExceptionMsg()
     failed = true
-
+  echo("after try")
   if failed:
     await client.statusContent($Http502, 
         routeException(error, jesterVer), 
         {"Content-Type": "text/html"}.newStringTable, isHttp)
     
     return true
-  
+  echo("Before guess action")
   resp = guessAction(resp)
   case resp.data.action
   of TCActionSend:
@@ -248,6 +258,8 @@ proc routeReq(route: TRoute, client: PAsyncSocket,
     result = false
   of TCActionNothing:
     assert(false)
+
+  echo("Leaving routeReq")
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
 proc sendStaticIfExists(client: PAsyncSocket, isHttp: bool,
@@ -287,7 +299,7 @@ proc handleRequest(client: PAsyncSocket,
       return
     else:
       raise
-  
+
   echo(reqMethod, " ", req.pathInfo)
   for route in j.routes:
     if $route.meth == reqMethod:
@@ -317,7 +329,7 @@ proc handleRequest(client: PAsyncSocket,
 
   ## The use of ``await`` above ensures that all data was sent and that we
   ## can safely close the socket here.
-  client.close()
+  #client.close()
 
 
 proc handleSCGIRequest(client: PAsyncSocket, input: string, headers: PStringTable) =
@@ -326,7 +338,7 @@ proc handleSCGIRequest(client: PAsyncSocket, input: string, headers: PStringTabl
                 false)
 
 proc handleHTTPRequest(req: asynchttpserver.TRequest) {.async.} =
-  await handleRequest(req.client, req.url.path, req.url.query, req.body,
+  await handleRequest(req.client, '/' & req.url.path, req.url.query, req.body,
                       req.hostname, req.reqMethod, req.headers, true)
 
 proc close*() =
@@ -361,7 +373,7 @@ proc serve*(appName = "", port = TPort(5000), http = true,
   if http:
     j.isHttp = true
     j.httpServer = newAsyncHttpServer()
-    await j.httpServer.serve(port, handleHTTPRequest)
+    j.httpServer.serve(port, handleHTTPRequest)
     echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
   else:
     j.isHttp = false
@@ -481,7 +493,8 @@ template redirect*(url: string): stmt =
   response.data[1] = Http303
   response.data[2]["Location"] = url
   response.data[3] = ""
-  return
+  asyncTransform:
+    return
 
 template pass*(): stmt =
   ## Skips this request handler.
@@ -489,7 +502,8 @@ template pass*(): stmt =
   ## If you want to stop this request from going further use ``halt``.
   bind TCActionPass
   response.data = (TCActionPass, Http404, nil, "")
-  return
+  asyncTransform:
+    return
 
 template cond*(condition: bool): stmt =
   ## If ``condition`` is ``False`` then ``pass`` will be called,
@@ -504,7 +518,8 @@ template halt*(code: THttpCode,
   ## route.
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
-  return
+  asyncTransform:
+    return
 
 template halt*(): stmt =
   ## Halts the execution of this request immediately. Returns a 404.
