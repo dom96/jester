@@ -2,12 +2,12 @@
 # MIT License - Look at license.txt for details.
 import parseutils, strtabs
 type
-  TNodeType = enum
+  TNodeType* = enum
     TNodeText, TNodeField
-  TNode = object
-    typ: TNodeType
-    text: string
-    optional: bool
+  TNode* = object
+    typ*: TNodeType
+    text*: string
+    optional*: bool
   
   TPattern* = seq[TNode]
 

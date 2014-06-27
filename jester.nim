@@ -1,7 +1,7 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch
+        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros
 
 import private/patterns, 
        private/errorpages,
@@ -16,15 +16,17 @@ type
   TRoute = tuple[meth: TReqMeth, m: PMatch, c: TCallback]
   
   TJester = object
-    isHttp*: bool
     httpServer*: PAsyncHttpServer
     routes*: seq[TRoute]
-    options: TOptions
+    settings: PSettings
     mimes*: TMimeDb
+    matchProc: proc (request: PRequest, response: PResponse): PFuture[bool]
 
-  TOptions = object
-    staticDir: string # By default ./public
-    appName: string
+  PSettings* = ref object
+    staticDir*: string # By default ./public
+    appName*: string
+    http*: bool
+    port*: TPort
 
   TRegexMatch = tuple[compiled: TRegex, original: string]
   
@@ -57,30 +59,22 @@ type
     path*: string                 ## Path of request.
     cookies*: PStringTable        ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
+    reqMeth*: TReqMeth
 
   PResponse* = ref object
     client*: PAsyncSocket ## For raw mode.
     data*: tuple[action: TCallbackAction, code: THttpCode,
                  headers: PStringTable, content: string]
 
-  TReqMeth = enum
+  TReqMeth* = enum
     HttpGet = "GET", HttpPost = "POST"
 
-  TCallbackAction = enum
+  TCallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
 
   TCallback = proc (request: jester.PRequest, response: PResponse): PFuture[void]
 
 const jesterVer = "0.1.0"
-
-proc initOptions(j: var TJester) =
-  j.options.staticDir = getCurrentDir() / "public"
-  j.options.appName = ""
-  
-var j: TJester
-j.routes = @[]
-j.initOptions()
-j.mimes = newMimetypes()
 
 proc sendHeaders(c: PAsyncSocket, status: string, headers: PStringTable,
                  http: bool): PFuture[bool] {.async.} =
@@ -148,20 +142,6 @@ template send*(content: string) =
 
 proc `$`*(r: TRegexMatch): string = return r.original
 
-proc guessAction(resp: PResponse): PResponse =
-  result = resp
-  if result.data.action == TCActionNothing:
-    if result.data.content != "":
-      result.data.action = TCActionSend
-      result.data.code = Http200
-      if not result.data.headers.hasKey("Content-Type"):
-        result.data.headers["Content-Type"] = "text/html"
-    else:
-      result.data.action = TCActionSend
-      result.data.code = Http502
-      result.data.headers = {"Content-Type": "text/html"}.newStringTable
-      result.data.content = error($Http502, jesterVer)
-
 proc stripAppName(path, appName: string): string =
   result = path
   if appname.len > 0:
@@ -192,13 +172,13 @@ proc renameHeaders(headers: PStringTable): PStringTable =
       # TODO: Should scgi-specific headers be preserved?
       #result[key] = val
 
-proc createReq(path, body, ip: string, headers, 
-               params: PStringTable, isHttp: bool): PRequest =
+proc createReq(jes: TJester, path, reqMeth, body, ip: string, headers, 
+               params: PStringTable): PRequest =
   new(result)
   result.params = params
   result.body = body
-  result.appName = j.options.appName
-  if isHttp:
+  result.appName = jes.settings.appName
+  if jes.settings.http:
     result.headers = headers
   else:
     if headers["SCRIPT_NAME"] != "":
@@ -222,65 +202,33 @@ proc createReq(path, body, ip: string, headers,
   if result.headers["Cookie"] != "":
     result.cookies = parseCookies(result.headers["Cookie"])
   else: result.cookies = newStringTable()
-
-proc routeReq(route: TRoute, client: PAsyncSocket,
-              req: jester.PRequest, isHttp: bool): PFuture[bool] {.async.} =
-  var resp = PResponse(client: client)
-
-  var failed = false # Workaround for no 'await' in 'except' body
-  var error = ""
-  echo("routeReq")
-  try:
-    await route.c(req, resp)
-  except:
-    # Handle any errors by showing them in the browser.
-    # TODO: Improve the look of this.
-    let traceback = getStackTrace(getCurrentException()).replace("\n", "<br/>\n")
-    error = traceback & getCurrentExceptionMsg()
-    failed = true
-  echo("after try")
-  if failed:
-    await client.statusContent($Http502, 
-        routeException(error, jesterVer), 
-        {"Content-Type": "text/html"}.newStringTable, isHttp)
-    
-    return true
-  echo("Before guess action")
-  resp = guessAction(resp)
-  case resp.data.action
-  of TCActionSend:
-    await client.statusContent($resp.data.code, resp.data.content,
-                               resp.data.headers, isHttp)
-    result = true
-  of TCActionRaw:
-    result = true
-  of TCActionPass:
-    result = false
-  of TCActionNothing:
-    assert(false)
-
-  echo("Leaving routeReq")
+  case reqMeth.normalize
+  of "get": result.reqMeth = HttpGet
+  of "post": result.reqMeth = HttpPost
+  else: assert false
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
-proc sendStaticIfExists(client: PAsyncSocket, isHttp: bool,
+proc sendStaticIfExists(client: PAsyncSocket, jes: TJester,
                         paths: seq[string]) {.async.} =
   for p in paths:
     if existsFile(p):
       var file = readFile(p)
       # TODO: Check file permissions
-      let mimetype = j.mimes.getMimetype(p.splitFile.ext[1 .. -1])
+      let mimetype = jes.mimes.getMimetype(p.splitFile.ext[1 .. -1])
       await client.statusContent($Http200, file,
-                           {"Content-type": mimetype}.newStringTable, isHttp)
+                           {"Content-type": mimetype}.newStringTable,
+                           jes.settings.http)
       return
   
   # If we get to here then no match could be found.
   await client.statusContent($Http404, error($Http404, jesterVer), 
-                       {"Content-type": "text/html"}.newStringTable, isHttp)
+                       {"Content-type": "text/html"}.newStringTable,
+                       jes.settings.http)
 
 template setMatches(req: expr) = req.matches = matches # Workaround.
-proc handleRequest(client: PAsyncSocket,
+proc handleRequest(jes: TJester, client: PAsyncSocket,
                    path, query, body, ip, reqMethod: string,
-                   headers: PStringTable, isHttp: bool) {.async.} =
+                   headers: PStringTable) {.async.} =
   var params = {:}.newStringTable()
   try:
     for key, val in cgi.decodeData(query):
@@ -292,67 +240,75 @@ proc handleRequest(client: PAsyncSocket,
   
   var req: PRequest
   try:
-    req = createReq(path, body, ip, headers, params, isHttp)
+    req = createReq(jes, path, reqMethod, body, ip, headers, params)
   except EInvalidValue:
-    if isHttp:
+    if jes.settings.http:
       client.close()
       return
     else:
       raise
 
-  echo(reqMethod, " ", req.pathInfo)
-  for route in j.routes:
-    if $route.meth == reqMethod:
-      case route.m.typ
-      of MRegex:
-        if req.pathInfo =~ route.m.regexMatch.compiled:
-          setMatches(req)
-          matched = await routeReq(route, client, req, isHttp)
+  var resp = PResponse(client: client)
 
-      of MSpecial:
-        let ret = route.m.pattern.match(req.pathInfo)
-        if ret.matched:
-          for key, val in ret.params:
-            req.params[key] = val
-          matched = await routeReq(route, client, req, isHttp)
-      if matched: break
-  
-  if not matched:
+  echo(reqMethod, " ", req.pathInfo)
+
+  var failed = false # Workaround for no 'await' in 'except' body
+  var error = ""
+  try:
+    matched = await jes.matchProc(req, resp)
+  except:
+    # Handle any errors by showing them in the browser.
+    # TODO: Improve the look of this.
+    let traceback = getStackTrace(getCurrentException()).replace("\n", "<br/>\n")
+    error = traceback & getCurrentExceptionMsg()
+    failed = true
+
+  if failed:
+    await client.statusContent($Http502,
+        routeException(error, jesterVer),
+        {"Content-Type": "text/html"}.newStringTable, jes.settings.http)
+
+    return
+
+  if matched:
+    if resp.data.action == TCActionSend:
+      await client.statusContent($resp.data.code, resp.data.content,
+                                  resp.data.headers, jes.settings.http)
+  else:
     # Find static file.
     # TODO: Caching.
-    let publicRequested = j.options.staticDir / req.pathInfo
+    let publicRequested = jes.settings.staticDir / req.pathInfo
     if existsDir(publicRequested):
-      await client.sendStaticIfExists(isHttp, @[publicRequested / "index.html",
+      await client.sendStaticIfExists(jes, @[publicRequested / "index.html",
                                         publicRequested / "index.htm"])
     else:
-      await client.sendStaticIfExists(isHttp, @[publicRequested])
+      await client.sendStaticIfExists(jes, @[publicRequested])
 
-  ## The use of ``await`` above ensures that all data was sent and that we
-  ## can safely close the socket here.
-  #client.close()
+  # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
+when false:
+  proc handleSCGIRequest(client: PAsyncSocket, input: string, headers: PStringTable) =
+    handleRequest(client, headers["DOCUMENT_URI"], headers["QUERY_STRING"],
+                  input, headers["REMOTE_ADDR"], headers["REQUEST_METHOD"], headers,
+                  false)
 
-proc handleSCGIRequest(client: PAsyncSocket, input: string, headers: PStringTable) =
-  handleRequest(client, headers["DOCUMENT_URI"], headers["QUERY_STRING"],
-                input, headers["REMOTE_ADDR"], headers["REQUEST_METHOD"], headers,
-                false)
+proc handleHTTPRequest(jes: TJester, req: asynchttpserver.TRequest) {.async.} =
+  await handleRequest(jes, req.client, '/' & req.url.path, req.url.query,
+                      req.body, req.hostname, req.reqMethod, req.headers)
 
-proc handleHTTPRequest(req: asynchttpserver.TRequest) {.async.} =
-  await handleRequest(req.client, '/' & req.url.path, req.url.query, req.body,
-                      req.hostname, req.reqMethod, req.headers, true)
+when false:
+  proc close*() =
+    ## Terminates a running instance of jester.
+    if j.isHttp:
+      j.httpServer.close()
+    else:
+      # TODO:
+    echo("Jester finishes his performance.")
 
-proc close*() =
-  ## Terminates a running instance of jester.
-  if j.isHttp:
-    j.httpServer.close()
-  else:
-    # TODO:
-  echo("Jester finishes his performance.")
-
-proc controlCHook() {.noconv.} =
-  echo("Ctrl + C captured.")
-  close()
-  quit(QuitSuccess)
+  proc controlCHook() {.noconv.} =
+    echo("Ctrl + C captured.")
+    close()
+    quit(QuitSuccess)
 
 template retryBind(body: stmt): stmt =
   var failed = true
@@ -364,79 +320,85 @@ template retryBind(body: stmt): stmt =
       echo("Could not bind socket, retrying in 30 seconds.")
       sleep(30000)
 
-proc serve*(appName = "", port = TPort(5000), http = true,
-  reuseAddr = true) {.async.} =
+proc newSettings*(): PSettings =
+  result = PSettings(staticDir: getCurrentDir() / "public",
+                     appName: "",
+                     http: true,
+                     port: TPort(5000))
+
+proc serve*(settings: PSettings,
+    match: proc (request: PRequest, response: PResponse): PFuture[bool]) =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
-  j.options.appName = appName
+  var jes: TJester
+  jes.routes = @[]
+  jes.settings = settings
+  jes.mimes = newMimetypes()
+  jes.matchProc = match
   #setControlCHook(controlCHook)
-  if http:
-    j.isHttp = true
-    j.httpServer = newAsyncHttpServer()
-    j.httpServer.serve(port, handleHTTPRequest)
-    echo("Jester is making jokes at http://localhost" & appName & ":" & $port)
+  if jes.settings.http:
+    jes.httpServer = newAsyncHttpServer()
+    jes.httpServer.serve(jes.settings.port,
+      proc (req: asynchttpserver.TRequest): PFuture[void] =
+        handleHTTPRequest(jes, req))
+    echo("Jester is making jokes at http://localhost" & jes.settings.appName &
+         ":" & $jes.settings.port)
   else:
-    j.isHttp = false
     # TODO: 
-    echo("Jester is making jokes for scgi at localhost" & appName & ":" & $port)
+    echo("Jester is making jokes for scgi at localhost" & jes.settings.appName &
+         ":" & $jes.settings.port)
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
 
-template setDefaultResp(): stmt =
-  bind TCActionNothing, newStringTable
-  response.data.action = TCActionNothing
-  response.data.code = Http200
-  response.data.headers = {:}.newStringTable
-  response.data.content = ""
+when false:
+  template matchAddPattern(meth: THttpCode, path: string,
+                           body: stmt): stmt {.immediate, dirty.} =
+    block:
+      bind j, PMatch, TRequest, PResponse, parsePattern, 
+           setDefaultResp, TRoute, TReqMeth
+      var match: PMatch
+      new(match)
+      match.typ = MSpecial
+      match.pattern = parsePattern(path)
 
-template matchAddPattern(meth: THttpCode, path: string,
-                         body: stmt): stmt {.immediate, dirty.} =
-  block:
-    bind j, PMatch, TRequest, PResponse, parsePattern, 
-         setDefaultResp, TRoute, TReqMeth
-    var match: PMatch
-    new(match)
-    match.typ = MSpecial
-    match.pattern = parsePattern(path)
-
-    proc cb(request: jester.PRequest,
-          response: PResponse): PFuture[void] {.closure, async.} =
-      setDefaultResp()
-      body
-
-    j.routes.add((meth, match, cb))
-
-template get*(path: string, body: stmt): stmt {.immediate, dirty.} =
-  ## Route handler for GET requests.
-  ##
-  ## ``path`` may contain named parameters, for example ``@param``. These
-  ## can then be accessed by ``@"param"`` in the request body.
-
-  bind HttpGet, matchAddPattern
-  matchAddPattern(HttpGet, path, body)
-
-template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate, dirty.} =
-  block:
-    bind j, PMatch, TRequest, PResponse, setDefaultResp, HttpGet
-    var match: PMatch
-    new(match)
-    match.typ = MRegex
-    match.regexMatch = rePath
-
-    proc cb(request: jester.PRequest,
+      proc cb(request: jester.PRequest,
             response: PResponse): PFuture[void] {.closure, async.} =
-      setDefaultResp()
-      body
-    j.routes.add((HttpGet, match, cb))
+        setDefaultResp()
+        body
 
-template post*(path: string, body: stmt): stmt {.immediate, dirty.} =
-  ## Route handler for POST requests.
-  ##
-  ## ``path`` behaves in the same way as with the ``get`` template.
+      j.routes.add((meth, match, cb))
 
-  bind HttpPost, matchAddPattern
-  matchAddPattern(HttpPost, path, body)
+  template get*(path: string, body: stmt): stmt {.immediate, dirty.} =
+    ## Route handler for GET requests.
+    ##
+    ## ``path`` may contain named parameters, for example ``@param``. These
+    ## can then be accessed by ``@"param"`` in the request body.
+
+    bind HttpGet, matchAddPattern
+    matchAddPattern(HttpGet, path, body)
+
+  template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate, dirty.} =
+    block:
+      bind j, PMatch, TRequest, PResponse, setDefaultResp, HttpGet
+      var match: PMatch
+      new(match)
+      match.typ = MRegex
+      match.regexMatch = rePath
+
+      proc cb(request: jester.PRequest,
+              response: PResponse): PFuture[void] {.closure, async.} =
+        setDefaultResp()
+        body
+      j.routes.add((HttpGet, match, cb))
+
+  template post*(path: string, body: stmt): stmt {.immediate, dirty.} =
+    ## Route handler for POST requests.
+    ##
+    ## ``path`` behaves in the same way as with the ``get`` template.
+
+    bind HttpPost, matchAddPattern
+    matchAddPattern(HttpPost, path, body)
 
 template resp*(code: THttpCode, 
                headers: openarray[tuple[key, value: string]],
@@ -501,9 +463,7 @@ template pass*(): stmt =
   ##
   ## If you want to stop this request from going further use ``halt``.
   bind TCActionPass
-  response.data = (TCActionPass, Http404, nil, "")
-  asyncTransform:
-    return
+  response.data.action = TCActionPass
 
 template cond*(condition: bool): stmt =
   ## If ``condition`` is ``False`` then ``pass`` will be called,
@@ -537,40 +497,42 @@ template halt*(content: string): stmt =
 template halt*(code: THttpCode, content: string): stmt =
   halt(code, {"Content-Type": "text/html"}, content)
 
-template attachment*(filename = ""): stmt =
-  ## Creates an attachment out of ``filename``. Once the route exits,
-  ## ``filename`` will be sent to the person making the request and web browsers
-  ## will be hinted to open their Save As dialog box.
-  bind j, getMimetype, extractFilename, splitFile
-  response.data[2]["Content-Disposition"] = "attachment"
-  if filename != "":
-    var param = "; filename=\"" & extractFilename(filename) & "\""
-    response.data[2].mget("Content-Disposition").add(param)
-    let ext = splitFile(filename).ext
-    if not (response.data[2]["Content-Type"] != "" or ext == ""):
-      response.data[2]["Content-Type"] = getMimetype(j.mimes, splitFile(filename).ext)
+when false:
+  template attachment*(filename = ""): stmt =
+    ## Creates an attachment out of ``filename``. Once the route exits,
+    ## ``filename`` will be sent to the person making the request and web browsers
+    ## will be hinted to open their Save As dialog box.
+    bind j, getMimetype, extractFilename, splitFile
+    response.data[2]["Content-Disposition"] = "attachment"
+    if filename != "":
+      var param = "; filename=\"" & extractFilename(filename) & "\""
+      response.data[2].mget("Content-Disposition").add(param)
+      let ext = splitFile(filename).ext
+      if not (response.data[2]["Content-Type"] != "" or ext == ""):
+        response.data[2]["Content-Type"] = getMimetype(j.mimes, splitFile(filename).ext)
 
 template `@`*(s: string): expr =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be
   ## returned if parameter doesn't exist.
   request.params[s]
-  
-proc setStaticDir*(dir: string) =
-  ## Sets the directory in which Jester will look for static files. It is
-  ## ``./public`` by default.
-  ##
-  ## The files will be served like so:
-  ## 
-  ## ./public/css/style.css ``->`` http://example.com/css/style.css
-  ## 
-  ## (``./public`` is not included in the final URL)
-  j.options.staticDir = dir
 
-proc getStaticDir*(): string =
-  ## Gets the directory in which Jester will look for static files.
-  ##
-  ## ``./public`` by default.
-  return j.options.staticDir
+when false:
+  proc setStaticDir*(dir: string) =
+    ## Sets the directory in which Jester will look for static files. It is
+    ## ``./public`` by default.
+    ##
+    ## The files will be served like so:
+    ## 
+    ## ./public/css/style.css ``->`` http://example.com/css/style.css
+    ## 
+    ## (``./public`` is not included in the final URL)
+    j.options.staticDir = dir
+
+  proc getStaticDir*(): string =
+    ## Gets the directory in which Jester will look for static files.
+    ##
+    ## ``./public`` by default.
+    return j.options.staticDir
 
 proc makeUri*(request: jester.PRequest, address = "", absolute = true,
               addScriptName = true): string =
@@ -623,4 +585,124 @@ proc normalizeUri*(uri: string): string =
   ## Remove any leading ``/``.
   if uri[uri.len-1] == '/': result = uri[0 .. -2]
   else: result = uri
+
+# -- Macro
+
+proc copyParams(request: PRequest, params: PStringTable) =
+  for key, val in params:
+    request.params[key] = val
+
+proc guessAction(resp: PResponse) =
+  if resp.data.action == TCActionNothing:
+    if resp.data.content != "":
+      resp.data.action = TCActionSend
+      resp.data.code = Http200
+      if not resp.data.headers.hasKey("Content-Type"):
+        resp.data.headers["Content-Type"] = "text/html"
+    else:
+      resp.data.action = TCActionSend
+      resp.data.code = Http502
+      resp.data.headers = {"Content-Type": "text/html"}.newStringTable
+      resp.data.content = error($Http502, "0.1.0") #jesterVer)
+
+proc checkAction(response: PResponse): bool =
+  guessAction(response)
+  case response.data.action
+  of TCActionSend, TCActionRaw:
+    result = true
+  of TCActionPass:
+    result = false
+  of TCActionNothing:
+    assert(false)
+
+proc skipDo(node: PNimrodNode): PNimrodNode {.compiletime.} =
+  expectKind node, nnkDo
+  result = node[6]
+
+proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
+  result = newNimNode(nnkPrefix)
+  result.add newIdentNode("@")
+  result.add newNimNode(nnkBracket)
+
+  proc addPattNode(res: var PNimrodNode, typ, text,
+                   optional: PNimrodNode) {.compiletime.} =
+    var objConstr = newNimNode(nnkObjConstr)
+
+    objConstr.add newIdentNode("TNode")
+    objConstr.add newNimNode(nnkExprColonExpr).add(
+        newIdentNode("typ"), typ)
+    objConstr.add newNimNode(nnkExprColonExpr).add(
+        newIdentNode("text"), text)
+    objConstr.add newNimNode(nnkExprColonExpr).add(
+        newIdentNode("optional"), optional)
+
+    res[1].add objConstr
+
+  var patt = parsePattern(pattern)
+  for node in patt:
+    result.addPattNode(newIdentNode($node.typ), newStrLitNode(node.text),
+                       newIdentNode(if node.optional: "true" else: "false"))
+
+template setDefaultResp(): stmt =
+  # TODO: bindSym this in the 'routes' macro and put it in each route
+  bind TCActionNothing, newStringTable
+  response.data.action = TCActionNothing
+  response.data.code = Http200
+  response.data.headers = {:}.newStringTable
+  response.data.content = ""
+
+macro routes*(body: stmt): stmt {.immediate.} =
+  #echo(treeRepr(body))
+  result = newStmtList()
+
+  var matchBody = newNimNode(nnkStmtList)
+  matchBody.add newCall(bindSym"setDefaultResp")
+  var caseStmt = newNimNode(nnkCaseStmt)
+  caseStmt.add parseExpr("request.reqMeth")
+
+  var caseStmtGetBody = newNimNode(nnkStmtList)
+  var caseStmtPostBody = newNimNode(nnkStmtList)
+
+  for i in 0 .. <body.len:
+    expectKind body[i], nnkCommand
+    case body[i][0].ident.`$`.normalize
+    of "get":
+      var patternMatchSym = genSym(nskLet, "patternMatchRet")
+      var ctPattern = ctParsePattern(body[i][1].strVal)
+      # -> let <patternMatchSym> = <ctPattern>.match(request.path)
+      caseStmtGetBody.add newLetStmt(patternMatchSym,
+          newCall(!"match", ctPattern, parseExpr("request.path")))
+      var ifStmtBody = newStmtList()
+      # -> copyParams(request, ret.params)
+      ifStmtBody.add newCall(bindSym"copyParams", newIdentNode"request",
+                             newDotExpr(patternMatchSym, newIdentNode"params"))
+      ifStmtBody.add body[i][2].skipDo()
+      var checkActionIf = parseExpr("if checkAction(response): return true")
+      checkActionIf[0][0][0] = bindSym"checkAction"
+      ifStmtBody.add checkActionIf
+      # -> if <patternMatchSym>.matched: <ifStmtBody>
+      var ifStmt = newIfStmt(
+          (newDotExpr(patternMatchSym, newIdentNode("matched")), ifStmtBody)
+        )
+      caseStmtGetBody.add ifStmt
+    else:
+      discard
+
+  var ofBranchGet = newNimNode(nnkOfBranch)
+  ofBranchGet.add newIdentNode("HttpGet")
+  ofBranchGet.add caseStmtGetBody
+  caseStmt.add ofBranchGet
+
+  var ofBranchPost = newNimNode(nnkOfBranch)
+  ofBranchPost.add newIdentNode("HttpPost")
+  ofBranchPost.add caseStmtPostBody
+  caseStmt.add ofBranchPost
+
+  matchBody.add caseStmt
+
+  result = parseStmt("proc match(request: PRequest, response: PResponse): PFuture[bool] {.async.} = discard")
+  result[0][6] = matchBody
+  echo toStrLit(result)
+  #echo treeRepr(result)
+
   
