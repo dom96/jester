@@ -10,6 +10,7 @@ import private/patterns,
 from cgi import decodeData, ECgi
 
 export strtabs
+export tables
 export THttpCode
 export TNodeType
 
@@ -290,11 +291,12 @@ proc handleHTTPRequest(jes: TJester, req: asynchttpserver.TRequest) {.async.} =
   await handleRequest(jes, req.client, '/' & req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
-proc newSettings*(): PSettings =
-  result = PSettings(staticDir: getCurrentDir() / "public",
-                     appName: "",
-                     http: true,
-                     port: TPort(5000))
+proc newSettings*(port = TPort(5000), staticDir = getCurrentDir() / "public",
+                  appName = "", http = true): PSettings =
+  result = PSettings(staticDir: staticDir,
+                     appName: appName,
+                     http: http,
+                     port: port)
 
 proc serve*(settings: PSettings,
     match: proc (request: PRequest, response: PResponse): PFuture[bool]) =
@@ -610,33 +612,44 @@ macro routes*(body: stmt): stmt {.immediate.} =
   var caseStmtPostBody = newNimNode(nnkStmtList)
 
   for i in 0 .. <body.len:
-    expectKind body[i], nnkCommand
-    case body[i][0].ident.`$`.normalize
-    of "get":
-      var thisRouteSym = genSym(nskLabel, "thisRoute")
-      var patternMatchSym = genSym(nskLet, "patternMatchRet")
-      var ctPattern = ctParsePattern(body[i][1].strVal)
-      # -> let <patternMatchSym> = <ctPattern>.match(request.path)
-      caseStmtGetBody.add newLetStmt(patternMatchSym,
-          newCall(bindSym"match", ctPattern, parseExpr("request.path")))
-      var ifStmtBody = newStmtList()
-      # -> copyParams(request, ret.params)
-      ifStmtBody.add newCall(bindSym"copyParams", newIdentNode"request",
-                             newDotExpr(patternMatchSym, newIdentNode"params"))
-      ifStmtBody.add body[i][2].skipDo().transformRouteBody(thisRouteSym)
-      var checkActionIf = parseExpr("if checkAction(response): return true")
-      checkActionIf[0][0][0] = bindSym"checkAction"
-      ifStmtBody.add checkActionIf
-      # -> if <patternMatchSym>.matched: <ifStmtBody>
-      var ifStmt = newIfStmt(
-          (newDotExpr(patternMatchSym, newIdentNode("matched")), ifStmtBody)
-        )
-      # -> block <thisRouteSym>: <ifStmt>
-      var blockStmt = newNimNode(nnkBlockStmt).add(
-        thisRouteSym, ifStmt)
-      caseStmtGetBody.add blockStmt
-    else:
+    case body[i].kind
+    of nnkCommand:
+      let cmdName = body[i][0].ident.`$`.normalize
+      case cmdName
+      of "get", "post":
+        template createRoute(dest: PNimrodNode) =
+          var thisRouteSym = genSym(nskLabel, "thisRoute")
+          var patternMatchSym = genSym(nskLet, "patternMatchRet")
+          var ctPattern = ctParsePattern(body[i][1].strVal)
+          # -> let <patternMatchSym> = <ctPattern>.match(request.path)
+          dest.add newLetStmt(patternMatchSym,
+              newCall(bindSym"match", ctPattern, parseExpr("request.path")))
+          var ifStmtBody = newStmtList()
+          # -> copyParams(request, ret.params)
+          ifStmtBody.add newCall(bindSym"copyParams", newIdentNode"request",
+                                 newDotExpr(patternMatchSym, newIdentNode"params"))
+          ifStmtBody.add body[i][2].skipDo().transformRouteBody(thisRouteSym)
+          var checkActionIf = parseExpr("if checkAction(response): return true")
+          checkActionIf[0][0][0] = bindSym"checkAction"
+          ifStmtBody.add checkActionIf
+          # -> if <patternMatchSym>.matched: <ifStmtBody>
+          var ifStmt = newIfStmt(
+              (newDotExpr(patternMatchSym, newIdentNode("matched")), ifStmtBody)
+            )
+          # -> block <thisRouteSym>: <ifStmt>
+          var blockStmt = newNimNode(nnkBlockStmt).add(
+            thisRouteSym, ifStmt)
+          dest.add blockStmt
+        case cmdName
+        of "get":
+          createRoute(caseStmtGetBody)
+        of "post":
+          createRoute(caseStmtPostBody)
+      else:
+        discard
+    of nnkCommentStmt:
       discard
+    else: assert false
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
@@ -652,7 +665,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
 
   result = parseStmt("proc match(request: PRequest, response: PResponse): PFuture[bool] {.async.} = discard")
   result[0][6] = matchBody
-  echo toStrLit(result)
+  #echo toStrLit(result)
   #echo treeRepr(result)
 
   

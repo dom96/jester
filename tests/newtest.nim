@@ -54,5 +54,34 @@ routes:
       sleep(1000)
     response.client.close()
 
+  # curl -v -F file='blah' http://dom96.co.cc:5000
+  # curl -X POST -d 'test=56' localhost:5000/post
+
+  post "/post":
+    body.add "Received: <br/>"
+    body.add($request.formData)
+    body.add "<br/>\n"
+    body.add($request.params)
+
+    status = Http200
+
+  get "/post":
+    resp """
+  <form name="input" action="$1" method="post">
+  First name: <input type="text" name="FirstName" value="Mickey" /><br />
+  Last name: <input type="text" name="LastName" value="Mouse" /><br />
+  <input type="submit" value="Submit" />
+  </form>""" % [uri("/post", absolute = false)]
+
+  get "/file":
+    resp """
+  <form action="/post" method="post"
+  enctype="multipart/form-data">
+  <label for="file">Filename:</label>
+  <input type="file" name="file" id="file" />
+  <br />
+  <input type="submit" name="submit" value="Submit" />
+  </form>"""
+
 jester.serve(settings, match)
 runForever()
