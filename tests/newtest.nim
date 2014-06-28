@@ -1,23 +1,17 @@
-import jester, asyncdispatch, strutils, math
+import jester, asyncdispatch, strutils, math, os, asyncnet
 
 var settings = newSettings()
-
-when false:
-  proc match(request: PRequest, response: PResponse): PFuture[bool] {.async.} =
-    setDefaultResp()
-    case request.reqMeth
-    of HttpGet:
-      let ret = parsePattern("/test/@blah").match(request.path)
-      if ret.matched:
-        copyParams(request, ret.params)
-        resp "Hello World"
-        if checkAction(response): return true
-    of HttpPost:
-      discard
 
 routes:
   get "/":
     resp "Hello World"
+
+  get "/halt":
+    halt Http502, "I'm sorry, this page has been halted."
+    resp "test"
+
+  get "/halt":
+    resp "<h1>Not halted!</h1>"
 
   get "/guess/@who":
     if @"who" != "Frank": pass()
@@ -44,6 +38,21 @@ routes:
     html.add "<b>Params: </b>" & $request.params
 
     resp html
+
+  get "/attachment":
+    attachment "public/root/index.html"
+    resp "blah"
+
+  get "/error":
+    proc blah = raise newException(ESynch, "BLAH BLAH BLAH")
+    blah()
+
+  get "/live":
+    await response.sendHeaders()
+    for i in 0 .. 10:
+      await response.send("The number is: " & $i & "</br>")
+      sleep(1000)
+    response.client.close()
 
 jester.serve(settings, match)
 runForever()

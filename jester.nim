@@ -18,14 +18,13 @@ type
   
   TJester = object
     httpServer*: PAsyncHttpServer
-    routes*: seq[TRoute]
     settings: PSettings
-    mimes*: TMimeDb
     matchProc: proc (request: PRequest, response: PResponse): PFuture[bool]
 
   PSettings* = ref object
     staticDir*: string # By default ./public
     appName*: string
+    mimes*: TMimeDb
     http*: bool
     port*: TPort
 
@@ -60,7 +59,8 @@ type
     path*: string                 ## Path of request.
     cookies*: PStringTable        ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
-    reqMeth*: TReqMeth
+    reqMeth*: TReqMeth            ## Request method: HttpGet or HttpPost 
+    settings*: PSettings
 
   PResponse* = ref object
     http: bool
@@ -85,7 +85,8 @@ proc sendHeaders(c: PAsyncSocket, status: string, headers: PStringTable,
     if headers != nil:
       for key, value in headers:
         strHeaders.add(key & ": " & value & "\c\L")
-    let data = (if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" & strHeaders & "\c\L"
+    let data = (if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" &
+        strHeaders & "\c\L"
     await c.send(data)
     result = true
   except:
@@ -197,6 +198,7 @@ proc createReq(jes: TJester, path, reqMeth, body, ip: string, headers,
   of "get": result.reqMeth = HttpGet
   of "post": result.reqMeth = HttpPost
   else: assert false
+  result.settings = jes.settings
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
 proc sendStaticIfExists(client: PAsyncSocket, jes: TJester,
@@ -205,7 +207,7 @@ proc sendStaticIfExists(client: PAsyncSocket, jes: TJester,
     if existsFile(p):
       var file = readFile(p)
       # TODO: Check file permissions
-      let mimetype = jes.mimes.getMimetype(p.splitFile.ext[1 .. -1])
+      let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. -1])
       await client.statusContent($Http200, file,
                            {"Content-type": mimetype}.newStringTable,
                            jes.settings.http)
@@ -244,17 +246,18 @@ proc handleRequest(jes: TJester, client: PAsyncSocket,
   echo(reqMethod, " ", req.pathInfo)
 
   var failed = false # Workaround for no 'await' in 'except' body
-  var error = ""
+  var matchProcFut: PFuture[bool]
   try:
-    matched = await jes.matchProc(req, resp)
+    matchProcFut = jes.matchProc(req, resp)
+    matched = await matchProcFut
   except:
     # Handle any errors by showing them in the browser.
     # TODO: Improve the look of this.
-    let traceback = getStackTrace(getCurrentException()).replace("\n", "<br/>\n")
-    error = traceback & getCurrentExceptionMsg()
     failed = true
 
   if failed:
+    let traceback = getStackTrace(matchProcFut.error).replace("\n", "<br/>\n")
+    let error = traceback & matchProcFut.error.msg
     await client.statusContent($Http502,
         routeException(error, jesterVer),
         {"Content-Type": "text/html"}.newStringTable, jes.settings.http)
@@ -298,9 +301,8 @@ proc serve*(settings: PSettings,
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
   var jes: TJester
-  jes.routes = @[]
   jes.settings = settings
-  jes.mimes = newMimetypes()
+  jes.settings.mimes = newMimetypes()
   jes.matchProc = match
   if jes.settings.http:
     jes.httpServer = newAsyncHttpServer()
@@ -397,17 +399,15 @@ template halt*(code: THttpCode,
   ## route.
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
-  asyncTransform:
-    return
+  # The ``route`` macro will add a 'return' after the invokation of this
+  # template.
 
 template halt*(): stmt =
   ## Halts the execution of this request immediately. Returns a 404.
   ## All previously set values are **discarded**.
-  bind error, jesterVer
   halt(Http404, {"Content-Type": "text/html"}, error($Http404, jesterVer))
 
-template halt*(code: THttpCode): stmt = 
-  bind error, jesterVer
+template halt*(code: THttpCode): stmt =
   halt(code, {"Content-Type": "text/html"}, error($code, jesterVer))
 
 template halt*(content: string): stmt =
@@ -416,42 +416,39 @@ template halt*(content: string): stmt =
 template halt*(code: THttpCode, content: string): stmt =
   halt(code, {"Content-Type": "text/html"}, content)
 
-when false:
-  template attachment*(filename = ""): stmt =
-    ## Creates an attachment out of ``filename``. Once the route exits,
-    ## ``filename`` will be sent to the person making the request and web browsers
-    ## will be hinted to open their Save As dialog box.
-    bind j, getMimetype, extractFilename, splitFile
-    response.data[2]["Content-Disposition"] = "attachment"
-    if filename != "":
-      var param = "; filename=\"" & extractFilename(filename) & "\""
-      response.data[2].mget("Content-Disposition").add(param)
-      let ext = splitFile(filename).ext
-      if not (response.data[2]["Content-Type"] != "" or ext == ""):
-        response.data[2]["Content-Type"] = getMimetype(j.mimes, splitFile(filename).ext)
+template attachment*(filename = ""): stmt =
+  ## Creates an attachment out of ``filename``. Once the route exits,
+  ## ``filename`` will be sent to the person making the request and web browsers
+  ## will be hinted to open their Save As dialog box.
+  response.data[2]["Content-Disposition"] = "attachment"
+  if filename != "":
+    var param = "; filename=\"" & extractFilename(filename) & "\""
+    response.data[2].mget("Content-Disposition").add(param)
+    let ext = splitFile(filename).ext
+    if not (response.data[2]["Content-Type"] != "" or ext == ""):
+      response.data[2]["Content-Type"] = getMimetype(request.settings.mimes, splitFile(filename).ext)
 
 template `@`*(s: string): expr =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be
   ## returned if parameter doesn't exist.
   request.params[s]
 
-when false:
-  proc setStaticDir*(dir: string) =
-    ## Sets the directory in which Jester will look for static files. It is
-    ## ``./public`` by default.
-    ##
-    ## The files will be served like so:
-    ## 
-    ## ./public/css/style.css ``->`` http://example.com/css/style.css
-    ## 
-    ## (``./public`` is not included in the final URL)
-    j.options.staticDir = dir
+proc setStaticDir*(request: PRequest, dir: string) =
+  ## Sets the directory in which Jester will look for static files. It is
+  ## ``./public`` by default.
+  ##
+  ## The files will be served like so:
+  ## 
+  ## ./public/css/style.css ``->`` http://example.com/css/style.css
+  ## 
+  ## (``./public`` is not included in the final URL)
+  request.settings.staticDir = dir
 
-  proc getStaticDir*(): string =
-    ## Gets the directory in which Jester will look for static files.
-    ##
-    ## ``./public`` by default.
-    return j.options.staticDir
+proc getStaticDir*(request: PRequest): string =
+  ## Gets the directory in which Jester will look for static files.
+  ##
+  ## ``./public`` by default.
+  return request.settings.staticDir
 
 proc makeUri*(request: jester.PRequest, address = "", absolute = true,
               addScriptName = true): string =
@@ -522,7 +519,7 @@ proc guessAction(resp: PResponse) =
       resp.data.action = TCActionSend
       resp.data.code = Http502
       resp.data.headers = {"Content-Type": "text/html"}.newStringTable
-      resp.data.content = error($Http502, "0.1.0") #jesterVer)
+      resp.data.content = error($Http502, jesterVer)
 
 proc checkAction(response: PResponse): bool =
   guessAction(response)
@@ -585,7 +582,7 @@ proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compilet
         result = newStmtList()
         result.add node
         result.add newNimNode(nnkBreakStmt).add(thisRouteSym)
-      of "redirect":
+      of "redirect", "halt":
         result = newStmtList()
         result.add node
         result.add newNimNode(nnkReturnStmt).add(newIdentNode("true"))
