@@ -100,7 +100,7 @@ proc statusContent(c: PAsyncSocket, status, content: string,
   var sent = await c.sendHeaders(status, newHeaders, http)
   if sent:
     try:
-      await c.send(content & "\c\L")
+      await c.send(content)
       sent = true
     except:
       sent = false
