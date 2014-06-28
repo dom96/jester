@@ -11,6 +11,7 @@ from cgi import decodeData, ECgi
 
 export strtabs
 export THttpCode
+export TNodeType
 
 type
   TRoute = tuple[meth: TReqMeth, m: PMatch, c: TCallback]
@@ -62,6 +63,7 @@ type
     reqMeth*: TReqMeth
 
   PResponse* = ref object
+    http: bool
     client*: PAsyncSocket ## For raw mode.
     data*: tuple[action: TCallbackAction, code: THttpCode,
                  headers: PStringTable, content: string]
@@ -106,39 +108,28 @@ proc statusContent(c: PAsyncSocket, status, content: string,
   else:
     echo("Could not send response: ", OSErrorMsg(OSLastError()))
 
-template asyncTransform(body: stmt) =
-  ## This is necessary because the async proc that the body
-  ## of our routes gets put into
-  ## does not get an expanded version of our templates.
-  ## So we must translate our code manually by wrapping it in its
-  ## own async proc... yeah, pretty ugly I know.
-  proc asyncWrapper {.async.} =
-    body
-  yield asyncWrapper()
-
-template sendHeaders*(status: THttpCode, headers: PStringTable) =
+proc sendHeaders*(response: PResponse, status: THttpCode,
+                  headers: PStringTable) {.async.} =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
-  asyncTransform:
-    response.data.action = TCActionRaw
-    discard await sendHeaders(response.client, $status, headers, j.isHttp)
+  response.data.action = TCActionRaw
+  discard await sendHeaders(response.client, $status, headers, response.http)
 
-template sendHeaders*(status: THttpCode) =
+proc sendHeaders*(response: PResponse, status: THttpCode): PFuture[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
-  sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
+  response.sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
 
-template sendHeaders*() =
+proc sendHeaders*(response: PResponse): PFuture[void] =
   ## Sends ``Http200`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
-  sendHeaders(Http200)
+  response.sendHeaders(Http200)
 
-template send*(content: string) =
+proc send*(response: PResponse, content: string) {.async.} =
   ## Sends ``content`` immediately to the client socket.
-  asyncTransform:
-    response.data.action = TCActionRaw
-    await response.client.send(content)
+  response.data.action = TCActionRaw
+  await response.client.send(content)
 
 proc `$`*(r: TRegexMatch): string = return r.original
 
@@ -248,7 +239,7 @@ proc handleRequest(jes: TJester, client: PAsyncSocket,
     else:
       raise
 
-  var resp = PResponse(client: client)
+  var resp = PResponse(client: client, http: jes.settings.http)
 
   echo(reqMethod, " ", req.pathInfo)
 
@@ -296,30 +287,6 @@ proc handleHTTPRequest(jes: TJester, req: asynchttpserver.TRequest) {.async.} =
   await handleRequest(jes, req.client, '/' & req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
-when false:
-  proc close*() =
-    ## Terminates a running instance of jester.
-    if j.isHttp:
-      j.httpServer.close()
-    else:
-      # TODO:
-    echo("Jester finishes his performance.")
-
-  proc controlCHook() {.noconv.} =
-    echo("Ctrl + C captured.")
-    close()
-    quit(QuitSuccess)
-
-template retryBind(body: stmt): stmt =
-  var failed = true
-  while failed:
-    try:
-      body
-      failed = false
-    except EOS:
-      echo("Could not bind socket, retrying in 30 seconds.")
-      sleep(30000)
-
 proc newSettings*(): PSettings =
   result = PSettings(staticDir: getCurrentDir() / "public",
                      appName: "",
@@ -335,7 +302,6 @@ proc serve*(settings: PSettings,
   jes.settings = settings
   jes.mimes = newMimetypes()
   jes.matchProc = match
-  #setControlCHook(controlCHook)
   if jes.settings.http:
     jes.httpServer = newAsyncHttpServer()
     jes.httpServer.serve(jes.settings.port,
@@ -350,55 +316,6 @@ proc serve*(settings: PSettings,
 
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
-
-when false:
-  template matchAddPattern(meth: THttpCode, path: string,
-                           body: stmt): stmt {.immediate, dirty.} =
-    block:
-      bind j, PMatch, TRequest, PResponse, parsePattern, 
-           setDefaultResp, TRoute, TReqMeth
-      var match: PMatch
-      new(match)
-      match.typ = MSpecial
-      match.pattern = parsePattern(path)
-
-      proc cb(request: jester.PRequest,
-            response: PResponse): PFuture[void] {.closure, async.} =
-        setDefaultResp()
-        body
-
-      j.routes.add((meth, match, cb))
-
-  template get*(path: string, body: stmt): stmt {.immediate, dirty.} =
-    ## Route handler for GET requests.
-    ##
-    ## ``path`` may contain named parameters, for example ``@param``. These
-    ## can then be accessed by ``@"param"`` in the request body.
-
-    bind HttpGet, matchAddPattern
-    matchAddPattern(HttpGet, path, body)
-
-  template getRe*(rePath: TRegexMatch, body: stmt): stmt {.immediate, dirty.} =
-    block:
-      bind j, PMatch, TRequest, PResponse, setDefaultResp, HttpGet
-      var match: PMatch
-      new(match)
-      match.typ = MRegex
-      match.regexMatch = rePath
-
-      proc cb(request: jester.PRequest,
-              response: PResponse): PFuture[void] {.closure, async.} =
-        setDefaultResp()
-        body
-      j.routes.add((HttpGet, match, cb))
-
-  template post*(path: string, body: stmt): stmt {.immediate, dirty.} =
-    ## Route handler for POST requests.
-    ##
-    ## ``path`` behaves in the same way as with the ``get`` template.
-
-    bind HttpPost, matchAddPattern
-    matchAddPattern(HttpPost, path, body)
 
 template resp*(code: THttpCode, 
                headers: openarray[tuple[key, value: string]],
@@ -455,20 +372,22 @@ template redirect*(url: string): stmt =
   response.data[1] = Http303
   response.data[2]["Location"] = url
   response.data[3] = ""
-  asyncTransform:
-    return
+  # The ``route`` macro will add a 'return' after the invokation of this
+  # template.
 
 template pass*(): stmt =
   ## Skips this request handler.
   ##
   ## If you want to stop this request from going further use ``halt``.
-  bind TCActionPass
   response.data.action = TCActionPass
+  # The ``route`` macro will perform a transformation which ensures a
+  # call to this template behaves correctly.
 
 template cond*(condition: bool): stmt =
   ## If ``condition`` is ``False`` then ``pass`` will be called,
   ## i.e. this request handler will be skipped.
-  if not condition: pass()
+  # The ``route`` macro will perform a transformation which ensures a
+  # call to this template behaves correctly.
 
 template halt*(code: THttpCode,
                headers: varargs[tuple[key, val: string]],
@@ -628,7 +547,7 @@ proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
                    optional: PNimrodNode) {.compiletime.} =
     var objConstr = newNimNode(nnkObjConstr)
 
-    objConstr.add newIdentNode("TNode")
+    objConstr.add bindSym("TNode")
     objConstr.add newNimNode(nnkExprColonExpr).add(
         newIdentNode("typ"), typ)
     objConstr.add newNimNode(nnkExprColonExpr).add(
@@ -640,8 +559,13 @@ proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
 
   var patt = parsePattern(pattern)
   for node in patt:
-    result.addPattNode(newIdentNode($node.typ), newStrLitNode(node.text),
-                       newIdentNode(if node.optional: "true" else: "false"))
+    # TODO: Can't bindSym the node type. issue #1319
+    result.addPattNode(
+      case node.typ
+      of TNodeText: newIdentNode("TNodeText")
+      of TNodeField: newIdentNode("TNodeField"),
+      newStrLitNode(node.text),
+      newIdentNode(if node.optional: "true" else: "false"))
 
 template setDefaultResp(): stmt =
   # TODO: bindSym this in the 'routes' macro and put it in each route
@@ -650,6 +574,31 @@ template setDefaultResp(): stmt =
   response.data.code = Http200
   response.data.headers = {:}.newStringTable
   response.data.content = ""
+
+proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compiletime.} =
+  result = node
+  case node.kind
+  of nnkCall, nnkCommand:
+    if node[0].kind == nnkIdent:
+      case node[0].ident.`$`.normalize
+      of "pass":
+        result = newStmtList()
+        result.add node
+        result.add newNimNode(nnkBreakStmt).add(thisRouteSym)
+      of "redirect":
+        result = newStmtList()
+        result.add node
+        result.add newNimNode(nnkReturnStmt).add(newIdentNode("true"))
+      of "cond":
+        var cond = newNimNode(nnkPrefix).add(newIdentNode("not"), node[1])
+        var condBody = newStmtList().add(getAst(pass()),
+            newNimNode(nnkBreakStmt).add(thisRouteSym))
+
+        result = newIfStmt((cond, condBody))
+      else: discard
+  else:
+    for i in 0 .. <node.len:
+      result[i] = transformRouteBody(node[i], thisRouteSym)
 
 macro routes*(body: stmt): stmt {.immediate.} =
   #echo(treeRepr(body))
@@ -667,16 +616,17 @@ macro routes*(body: stmt): stmt {.immediate.} =
     expectKind body[i], nnkCommand
     case body[i][0].ident.`$`.normalize
     of "get":
+      var thisRouteSym = genSym(nskLabel, "thisRoute")
       var patternMatchSym = genSym(nskLet, "patternMatchRet")
       var ctPattern = ctParsePattern(body[i][1].strVal)
       # -> let <patternMatchSym> = <ctPattern>.match(request.path)
       caseStmtGetBody.add newLetStmt(patternMatchSym,
-          newCall(!"match", ctPattern, parseExpr("request.path")))
+          newCall(bindSym"match", ctPattern, parseExpr("request.path")))
       var ifStmtBody = newStmtList()
       # -> copyParams(request, ret.params)
       ifStmtBody.add newCall(bindSym"copyParams", newIdentNode"request",
                              newDotExpr(patternMatchSym, newIdentNode"params"))
-      ifStmtBody.add body[i][2].skipDo()
+      ifStmtBody.add body[i][2].skipDo().transformRouteBody(thisRouteSym)
       var checkActionIf = parseExpr("if checkAction(response): return true")
       checkActionIf[0][0][0] = bindSym"checkAction"
       ifStmtBody.add checkActionIf
@@ -684,7 +634,10 @@ macro routes*(body: stmt): stmt {.immediate.} =
       var ifStmt = newIfStmt(
           (newDotExpr(patternMatchSym, newIdentNode("matched")), ifStmtBody)
         )
-      caseStmtGetBody.add ifStmt
+      # -> block <thisRouteSym>: <ifStmt>
+      var blockStmt = newNimNode(nnkBlockStmt).add(
+        thisRouteSym, ifStmt)
+      caseStmtGetBody.add blockStmt
     else:
       discard
 
