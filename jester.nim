@@ -308,7 +308,7 @@ proc serve*(settings: PSettings,
   jes.matchProc = match
   if jes.settings.http:
     jes.httpServer = newAsyncHttpServer()
-    jes.httpServer.serve(jes.settings.port,
+    asyncCheck jes.httpServer.serve(jes.settings.port,
       proc (req: asynchttpserver.TRequest): PFuture[void] =
         handleHTTPRequest(jes, req))
     echo("Jester is making jokes at http://localhost" & jes.settings.appName &
@@ -603,6 +603,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
   #echo(treeRepr(body))
   result = newStmtList()
 
+  var outsideStmts = newStmtList()
+
   var matchBody = newNimNode(nnkStmtList)
   matchBody.add newCall(bindSym"setDefaultResp")
   var caseStmt = newNimNode(nnkCaseStmt)
@@ -649,7 +651,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
         discard
     of nnkCommentStmt:
       discard
-    else: assert false
+    else:
+      outsideStmts.add(body[i])
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
@@ -663,8 +666,11 @@ macro routes*(body: stmt): stmt {.immediate.} =
 
   matchBody.add caseStmt
 
-  result = parseStmt("proc match(request: PRequest, response: PResponse): PFuture[bool] {.async.} = discard")
-  result[0][6] = matchBody
+  var matchProc = parseStmt("proc match(request: PRequest," & 
+    "response: PResponse): PFuture[bool] {.async.} = discard")
+  matchProc[0][6] = matchBody
+  result.add(outsideStmts)
+  result.add(matchProc)
   #echo toStrLit(result)
   #echo treeRepr(result)
 
