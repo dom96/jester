@@ -165,7 +165,7 @@ proc renameHeaders(headers: PStringTable): PStringTable =
       # TODO: Should scgi-specific headers be preserved?
       #result[key] = val
 
-proc createReq(jes: TJester, path, reqMeth, body, ip: string, headers, 
+proc createReq(jes: TJester, path, body, ip: string, reqMeth: TReqMeth, headers,
                params: PStringTable): PRequest =
   new(result)
   result.params = params
@@ -195,10 +195,7 @@ proc createReq(jes: TJester, path, reqMeth, body, ip: string, headers,
   if result.headers["Cookie"] != "":
     result.cookies = parseCookies(result.headers["Cookie"])
   else: result.cookies = newStringTable()
-  case reqMeth.normalize
-  of "get": result.reqMeth = HttpGet
-  of "post": result.reqMeth = HttpPost
-  else: assert false
+  result.reqMeth = reqMeth
   result.settings = jes.settings
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
@@ -219,6 +216,16 @@ proc sendStaticIfExists(client: PAsyncSocket, jes: TJester,
                        {"Content-type": "text/html"}.newStringTable,
                        jes.settings.http)
 
+proc parseReqMethod(reqMethod: string, output: var TReqMeth): bool =
+  result = true
+  case reqMethod.normalize
+  of "get":
+    output = HttpGet
+  of "post":
+    output = HttpPost
+  else:
+    result = false
+
 template setMatches(req: expr) = req.matches = matches # Workaround.
 proc handleRequest(jes: TJester, client: PAsyncSocket,
                    path, query, body, ip, reqMethod: string,
@@ -230,11 +237,18 @@ proc handleRequest(jes: TJester, client: PAsyncSocket,
   except ECgi:
     echo("[Warning] Incorrect query. Got: ", query)
 
+  var parsedReqMethod = HttpGet
+  if not parseReqMethod(reqMethod, parsedReqMethod):
+    await client.statusContent($Http400, error($Http400, jesterVer),
+                           {"Content-type": "text/html"}.newStringTable,
+                           jes.settings.http)
+    return
+
   var matched = false
   
   var req: PRequest
   try:
-    req = createReq(jes, path, reqMethod, body, ip, headers, params)
+    req = createReq(jes, path, body, ip, parsedReqMethod, headers, params)
   except EInvalidValue:
     if jes.settings.http:
       client.close()
