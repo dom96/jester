@@ -302,7 +302,7 @@ when false:
                   false)
 
 proc handleHTTPRequest(jes: TJester, req: asynchttpserver.TRequest) {.async.} =
-  await handleRequest(jes, req.client, '/' & req.url.path, req.url.query,
+  await handleRequest(jes, req.client, req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
 proc newSettings*(port = TPort(5000), staticDir = getCurrentDir() / "public",
