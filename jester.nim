@@ -20,7 +20,7 @@ type
   TJester = object
     httpServer*: PAsyncHttpServer
     settings: PSettings
-    matchProc: proc (request: PRequest, response: PResponse): PFuture[bool]
+    matchProc: proc (request: PRequest, response: PResponse): PFuture[bool] {.gcsafe.}
 
   PSettings* = ref object
     staticDir*: string # By default ./public
@@ -75,7 +75,7 @@ type
   TCallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
 
-  TCallback = proc (request: jester.PRequest, response: PResponse): PFuture[void]
+  TCallback = proc (request: jester.PRequest, response: PResponse): PFuture[void] {.gcsafe.}
 
 const jesterVer = "0.1.0"
 
@@ -313,7 +313,7 @@ proc newSettings*(port = TPort(5000), staticDir = getCurrentDir() / "public",
                      port: port)
 
 proc serve*(settings: PSettings,
-    match: proc (request: PRequest, response: PResponse): PFuture[bool]) =
+    match: proc (request: PRequest, response: PResponse): PFuture[bool] {.gcsafe.} ) =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
   var jes: TJester
@@ -323,7 +323,7 @@ proc serve*(settings: PSettings,
   if jes.settings.http:
     jes.httpServer = newAsyncHttpServer()
     asyncCheck jes.httpServer.serve(jes.settings.port,
-      proc (req: asynchttpserver.TRequest): PFuture[void] =
+      proc (req: asynchttpserver.TRequest): PFuture[void] {.gcsafe.} =
         handleHTTPRequest(jes, req))
     echo("Jester is making jokes at http://localhost" & jes.settings.appName &
          ":" & $jes.settings.port)
