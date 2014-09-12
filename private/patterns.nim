@@ -93,6 +93,7 @@ proc match*(pattern: TPattern, s: string): tuple[matched: bool, params: PStringT
           inc(i, node.text.len) # Skip over this optional character.
         else:
           # If it's not there, we have nothing to do. It's optional after all.
+          discard
       else:
         if check(node, s, i):
           inc(i, node.text.len) # Skip over this

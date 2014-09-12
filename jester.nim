@@ -20,14 +20,14 @@ type
   TJester = object
     httpServer*: PAsyncHttpServer
     settings: PSettings
-    matchProc: proc (request: PRequest, response: PResponse): PFuture[bool] {.gcsafe.}
+    matchProc: proc (request: PRequest, response: PResponse): Future[bool] {.gcsafe.}
 
   PSettings* = ref object
     staticDir*: string # By default ./public
     appName*: string
     mimes*: TMimeDb
     http*: bool
-    port*: TPort
+    port*: Port
 
   TRegexMatch = tuple[compiled: TRegex, original: string]
   
@@ -75,12 +75,12 @@ type
   TCallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
 
-  TCallback = proc (request: jester.PRequest, response: PResponse): PFuture[void] {.gcsafe.}
+  TCallback = proc (request: jester.PRequest, response: PResponse): Future[void] {.gcsafe.}
 
 const jesterVer = "0.1.0"
 
 proc sendHeaders(c: PAsyncSocket, status: string, headers: PStringTable,
-                 http: bool): PFuture[bool] {.async.} =
+                 http: bool): Future[bool] {.async.} =
   try:
     var strHeaders = ""
     if headers != nil:
@@ -108,7 +108,7 @@ proc statusContent(c: PAsyncSocket, status, content: string,
   if sent:
     echo("  ", status, " ", headers)
   else:
-    echo("Could not send response: ", OSErrorMsg(OSLastError()))
+    echo("Could not send response: ", osErrorMsg(osLastError()))
 
 proc sendHeaders*(response: PResponse, status: THttpCode,
                   headers: PStringTable) {.async.} =
@@ -118,12 +118,12 @@ proc sendHeaders*(response: PResponse, status: THttpCode,
   response.data.action = TCActionRaw
   discard await sendHeaders(response.client, $status, headers, response.http)
 
-proc sendHeaders*(response: PResponse, status: THttpCode): PFuture[void] =
+proc sendHeaders*(response: PResponse, status: THttpCode): Future[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
   response.sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
 
-proc sendHeaders*(response: PResponse): PFuture[void] =
+proc sendHeaders*(response: PResponse): Future[void] =
   ## Sends ``Http200`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
   response.sendHeaders(Http200)
@@ -164,6 +164,7 @@ proc renameHeaders(headers: PStringTable): PStringTable =
     else:
       # TODO: Should scgi-specific headers be preserved?
       #result[key] = val
+      discard
 
 proc createReq(jes: TJester, path, body, ip: string, reqMeth: TReqMeth, headers,
                params: PStringTable): PRequest =
@@ -261,7 +262,7 @@ proc handleRequest(jes: TJester, client: PAsyncSocket,
   echo(reqMethod, " ", req.pathInfo)
 
   var failed = false # Workaround for no 'await' in 'except' body
-  var matchProcFut: PFuture[bool]
+  var matchProcFut: Future[bool]
   try:
     matchProcFut = jes.matchProc(req, resp)
     matched = await matchProcFut
@@ -305,7 +306,7 @@ proc handleHTTPRequest(jes: TJester, req: asynchttpserver.TRequest) {.async.} =
   await handleRequest(jes, req.client, req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
-proc newSettings*(port = TPort(5000), staticDir = getCurrentDir() / "public",
+proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
                   appName = "", http = true): PSettings =
   result = PSettings(staticDir: staticDir,
                      appName: appName,
@@ -313,7 +314,7 @@ proc newSettings*(port = TPort(5000), staticDir = getCurrentDir() / "public",
                      port: port)
 
 proc serve*(settings: PSettings,
-    match: proc (request: PRequest, response: PResponse): PFuture[bool] {.gcsafe.} ) =
+    match: proc (request: PRequest, response: PResponse): Future[bool] {.gcsafe.} ) =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
   var jes: TJester
@@ -323,7 +324,7 @@ proc serve*(settings: PSettings,
   if jes.settings.http:
     jes.httpServer = newAsyncHttpServer()
     asyncCheck jes.httpServer.serve(jes.settings.port,
-      proc (req: asynchttpserver.TRequest): PFuture[void] {.gcsafe.} =
+      proc (req: asynchttpserver.TRequest): Future[void] {.gcsafe.} =
         handleHTTPRequest(jes, req))
     echo("Jester is making jokes at http://localhost" & jes.settings.appName &
          ":" & $jes.settings.port)
@@ -681,7 +682,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
   matchBody.add caseStmt
 
   var matchProc = parseStmt("proc match(request: PRequest," & 
-    "response: PResponse): PFuture[bool] {.async.} = discard")
+    "response: PResponse): Future[bool] {.async.} = discard")
   matchProc[0][6] = matchBody
   result.add(outsideStmts)
   result.add(matchProc)

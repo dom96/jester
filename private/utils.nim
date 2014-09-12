@@ -1,7 +1,7 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import parseutils, strtabs, strutils, tables
-from cgi import urlDecode
+from cgi import decodeUrl
 
 type
   TMultiData = TTable[string, tuple[fields: PStringTable, body: string]]
@@ -19,7 +19,7 @@ proc parseUrlQuery*(query: string, result: var PStringTable) =
     inc(i) # Skip =
     i += query.parseUntil(val, '&', i)
     inc(i) # Skip &
-    result[urlDecode(key)] = urlDecode(val)
+    result[decodeUrl(key)] = decodeUrl(val)
 
 template parseContentDisposition(): stmt =
   var hCount = 0
