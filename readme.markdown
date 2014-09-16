@@ -1,21 +1,22 @@
 # Jester
 
 The sinatra-like web framework for Nimrod. Jester provides a DSL for quickly 
-creating web applications in Nimrod, it currently mimics sinatra almost completely:
+creating web applications in Nimrod.
 
 ```nimrod
-# myapp.nim
-import jester, strtabs, htmlgen
+# example.nim
+import jester, asyncdispatch, htmlgen
 
-get "/":
-  resp h1("Hello world")
+routes:
+  get "/":
+    resp h1("Hello world")
 
-run()
+runForever()
 ```
 
 Compile and run with:
 
-  nimrod c -r myapp.nim
+  nimrod c -r example.nim
 
 
 View at: [localhost:5000](http://localhost:5000)
@@ -23,9 +24,12 @@ View at: [localhost:5000](http://localhost:5000)
 ## Routes
 
 ```nimrod
-get "/":
-  # do something here.
+routes:
+  get "/":
+    # do something here.
 ```
+
+All routes must be inside a ``routes`` block.
 
 Routes will be executed in the order that they are declared. So be careful when
 halting.
@@ -68,15 +72,16 @@ not match "/hello" if the leading '/' is not made optional.
 Jester supports conditions, however they are limited to a simple ``cond`` template.
 
 ```nimrod
-get "/@name":
-  cond @"name" != "daniel"
-  # ``cond`` will pass execution to the next matching route if @"name" is not
-  # "daniel".
-  resp "Correct, my name is daniel."
+routes:
+  get "/@name":
+    cond @"name" != "daniel"
+    # ``cond`` will pass execution to the next matching route if @"name" is not
+    # "daniel".
+    resp "Correct, my name is daniel."
 
-get "/@name":
-  # This will be the next route that is matched.
-  resp "No, that's not my name."
+  get "/@name":
+    # This will be the next route that is matched.
+    resp "No, that's not my name."
 ```
 
 ## Return values
@@ -93,6 +98,13 @@ functions:
   * ``attachment`` function
 
 There might be more. Take a look at the documentation of jester.nim for more info.
+
+## Manual routing
+
+It is possible not to use the ``routes`` macro and to do the routing yourself.
+
+You can do this by writing your own ``match`` procedure. Take a look at
+[example2](tests/example2.nim) for an example on how to do this.
 
 ## Static files
 
@@ -120,11 +132,12 @@ They can then be accessed from the ``request.cookies`` PStringTable.
 The code for this is pretty similar to the code for Sinatra given here: http://help.github.com/post-receive-hooks/
 
 ```nimrod
-import jester, json, strtabs
+import jester, asyncdispatch, json
 
-post "/":
-  var push = parseJson(@"payload")
-  resp "I got some JSON: " & $push
+routes:
+  post "/":
+    var push = parseJson(@"payload")
+    resp "I got some JSON: " & $push
 
-run()
+runForever()
 ```

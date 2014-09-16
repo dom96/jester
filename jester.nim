@@ -284,6 +284,8 @@ proc handleRequest(jes: TJester, client: PAsyncSocket,
     if resp.data.action == TCActionSend:
       await client.statusContent($resp.data.code, resp.data.content,
                                   resp.data.headers, jes.settings.http)
+    else:
+      echo("  ", resp.data.action)
   else:
     # Find static file.
     # TODO: Caching.
@@ -313,8 +315,10 @@ proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
                      http: http,
                      port: port)
 
-proc serve*(settings: PSettings,
-    match: proc (request: PRequest, response: PResponse): Future[bool] {.gcsafe.} ) =
+proc serve*(
+    match:
+      proc (request: PRequest, response: PResponse): Future[bool] {.gcsafe.},
+    settings: PSettings = newSettings()) =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
   var jes: TJester
@@ -329,6 +333,7 @@ proc serve*(settings: PSettings,
     echo("Jester is making jokes at http://localhost" & jes.settings.appName &
          ":" & $jes.settings.port)
   else:
+    assert false, "TODO: SCGI not supported yet."
     # TODO: 
     echo("Jester is making jokes for scgi at localhost" & jes.settings.appName &
          ":" & $jes.settings.port)
@@ -589,6 +594,10 @@ template setDefaultResp(): stmt =
   response.data.headers = {:}.newStringTable
   response.data.content = ""
 
+template declareSettings(): stmt {.immediate, dirty.} =
+  when not declared(settings):
+    var settings = newSettings()
+
 proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compiletime.} =
   result = node
   case node.kind
@@ -617,6 +626,9 @@ proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compilet
 macro routes*(body: stmt): stmt {.immediate.} =
   #echo(treeRepr(body))
   result = newStmtList()
+
+  # -> declareSettings()
+  result.add newCall(bindSym"declareSettings")
 
   var outsideStmts = newStmtList()
 
@@ -686,6 +698,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
   matchProc[0][6] = matchBody
   result.add(outsideStmts)
   result.add(matchProc)
+
+  result.add parseExpr("jester.serve(match, settings)")
   #echo toStrLit(result)
   #echo treeRepr(result)
 

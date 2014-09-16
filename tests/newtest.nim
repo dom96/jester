@@ -1,7 +1,5 @@
 import jester, asyncdispatch, strutils, math, os, asyncnet
 
-var settings = newSettings()
-
 routes:
   get "/":
     resp "Hello World"
@@ -83,5 +81,4 @@ routes:
   <input type="submit" name="submit" value="Submit" />
   </form>"""
 
-jester.serve(settings, match)
 runForever()
