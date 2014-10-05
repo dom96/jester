@@ -1,5 +1,15 @@
 # Jester
 
+####Note. 
+
+In order to use this version of Jester, you will need the "bigbreak" branch of Nimrod.
+
+View here for more info:
+
+[https://github.com/Araq/Nimrod/tree/bigbreak](https://github.com/Araq/Nimrod/tree/bigbreak)
+
+___
+
 The sinatra-like web framework for Nimrod. Jester provides a DSL for quickly 
 creating web applications in Nimrod.
 
