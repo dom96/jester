@@ -4,9 +4,9 @@ import parseutils, strtabs, strutils, tables
 from cgi import decodeUrl
 
 type
-  TMultiData = TTable[string, tuple[fields: PStringTable, body: string]]
+  TMultiData = Table[string, tuple[fields: StringTableRef, body: string]]
 
-proc parseUrlQuery*(query: string, result: var PStringTable) =
+proc parseUrlQuery*(query: string, result: var StringTableRef) =
   var i = 0
   i = query.skip("?")
   while i < query.len()-1:
@@ -14,7 +14,7 @@ proc parseUrlQuery*(query: string, result: var PStringTable) =
     var val = ""
     i += query.parseUntil(key, '=', i)
     if query[i] != '=':
-      raise newException(EInvalidValue, "Expected '=' at " & $i &
+      raise newException(ValueError, "Expected '=' at " & $i &
                          " but got: " & $query[i])
     inc(i) # Skip =
     i += query.parseUntil(val, '&', i)
@@ -38,7 +38,7 @@ template parseContentDisposition(): stmt =
       hCount += hValue.skipWhitespace(hCount)
 
 proc parseMultiPart*(body: string, boundary: string): TMultiData =
-  result = initTable[string, tuple[fields: PStringTable, body: string]]()
+  result = initTable[string, tuple[fields: StringTableRef, body: string]]()
   var mboundary = "--" & boundary
   
   var i = 0
@@ -46,12 +46,12 @@ proc parseMultiPart*(body: string, boundary: string): TMultiData =
   while partsLeft:
     var firstBoundary = body.skip(mboundary, i)
     if firstBoundary == 0:
-      raise newException(EInvalidValue, "Expected boundary. Got: " & body.substr(i, i+25))
+      raise newException(ValueError, "Expected boundary. Got: " & body.substr(i, i+25))
     i += firstBoundary
     i += body.skipWhitespace(i)
     
     # Headers
-    var newPart: tuple[fields: PStringTable, body: string] = ({:}.newStringTable, "")
+    var newPart: tuple[fields: StringTableRef, body: string] = ({:}.newStringTable, "")
     var name = ""
     while true:
       if body[i] == '\c':
@@ -60,7 +60,7 @@ proc parseMultiPart*(body: string, boundary: string): TMultiData =
       var hName = ""
       i += body.parseUntil(hName, ':', i)
       if body[i] != ':':
-        raise newException(EInvalidValue, "Expected : in headers.")
+        raise newException(ValueError, "Expected : in headers.")
       inc(i) # Skip :
       i += body.skipWhitespace(i)
       var hValue = ""
