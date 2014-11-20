@@ -7,29 +7,29 @@ import private/patterns,
        private/errorpages,
        private/utils
 
-from cgi import decodeData, ECgi
+from cgi import decodeData, CgiError
 
 export strtabs
 export tables
-export THttpCode
+export HttpCode
 export TNodeType
 
 type
   TRoute = tuple[meth: TReqMeth, m: PMatch, c: TCallback]
   
   TJester = object
-    httpServer*: PAsyncHttpServer
+    httpServer*: AsyncHttpServer
     settings: PSettings
     matchProc: proc (request: PRequest, response: PResponse): Future[bool] {.gcsafe.}
 
   PSettings* = ref object
     staticDir*: string # By default ./public
     appName*: string
-    mimes*: TMimeDb
+    mimes*: MimeDb
     http*: bool
     port*: Port
 
-  TRegexMatch = tuple[compiled: TRegex, original: string]
+  TRegexMatch = tuple[compiled: Regex, original: string]
   
   TMatchType* = enum
     MRegex, MSpecial
@@ -42,15 +42,15 @@ type
     of MSpecial:
       pattern*: TPattern
   
-  TMultiData* = TTable[string, tuple[fields: PStringTable, body: string]]
+  TMultiData* = Table[string, tuple[fields: StringTableRef, body: string]]
   
   PRequest* = ref object
-    params*: PStringTable         ## Parameters from the pattern, but also the
+    params*: StringTableRef         ## Parameters from the pattern, but also the
                                   ## query string.
     matches*: array[0..9, string] ## Matches if this is a regex pattern.
     body*: string                 ## Body of the request, only for POST.
                                   ## You're probably looking for ``formData`` instead.
-    headers*: PStringTable        ## Headers received with the request. Retrieving these is case insensitive.
+    headers*: StringTableRef        ## Headers received with the request. Retrieving these is case insensitive.
     formData*: TMultiData         ## Form data; only present for multipart/form-data
     port*: int
     host*: string
@@ -58,16 +58,16 @@ type
     pathInfo*: string             ## This is ``.path`` without ``.appName``.
     secure*: bool
     path*: string                 ## Path of request.
-    cookies*: PStringTable        ## Cookies from the browser.
+    cookies*: StringTableRef        ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
     reqMeth*: TReqMeth            ## Request method: HttpGet or HttpPost 
     settings*: PSettings
 
   PResponse* = ref object
     http: bool
-    client*: PAsyncSocket ## For raw mode.
-    data*: tuple[action: TCallbackAction, code: THttpCode,
-                 headers: PStringTable, content: string]
+    client*: AsyncSocket ## For raw mode.
+    data*: tuple[action: TCallbackAction, code: HttpCode,
+                 headers: StringTableRef, content: string]
 
   TReqMeth* = enum
     HttpGet = "GET", HttpPost = "POST"
@@ -79,7 +79,7 @@ type
 
 const jesterVer = "0.1.0"
 
-proc sendHeaders(c: PAsyncSocket, status: string, headers: PStringTable,
+proc sendHeaders(c: AsyncSocket, status: string, headers: StringTableRef,
                  http: bool): Future[bool] {.async.} =
   try:
     var strHeaders = ""
@@ -93,8 +93,8 @@ proc sendHeaders(c: PAsyncSocket, status: string, headers: PStringTable,
   except:
     echo("Could not send response: ", getCurrentExceptionMsg())
 
-proc statusContent(c: PAsyncSocket, status, content: string,
-                   headers: PStringTable, http: bool) {.async.} =
+proc statusContent(c: AsyncSocket, status, content: string,
+                   headers: StringTableRef, http: bool) {.async.} =
   var newHeaders = headers
   newHeaders["Content-Length"] = $content.len
   var sent = await c.sendHeaders(status, newHeaders, http)
@@ -110,15 +110,15 @@ proc statusContent(c: PAsyncSocket, status, content: string,
   else:
     echo("Could not send response: ", osErrorMsg(osLastError()))
 
-proc sendHeaders*(response: PResponse, status: THttpCode,
-                  headers: PStringTable) {.async.} =
+proc sendHeaders*(response: PResponse, status: HttpCode,
+                  headers: StringTableRef) {.async.} =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
   response.data.action = TCActionRaw
   discard await sendHeaders(response.client, $status, headers, response.http)
 
-proc sendHeaders*(response: PResponse, status: THttpCode): Future[void] =
+proc sendHeaders*(response: PResponse, status: HttpCode): Future[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
   response.sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
@@ -148,11 +148,11 @@ proc stripAppName(path, appName: string): string =
       else:
         return path[slashAppName.len .. path.len-1]
     else:
-      raise newException(EInvalidValue,
+      raise newException(ValueError,
           "Expected script name at beginning of path. Got path: " &
            path & " script name: " & slashAppName)
 
-proc renameHeaders(headers: PStringTable): PStringTable =
+proc renameHeaders(headers: StringTableRef): StringTableRef =
   ## Renames headers beginning with HTTP_.
   ## For example, HTTP_CONTENT_TYPE becomes Content-Type.
   ## Removes any headers that don't begin with HTTP_
@@ -167,7 +167,7 @@ proc renameHeaders(headers: PStringTable): PStringTable =
       discard
 
 proc createReq(jes: TJester, path, body, ip: string, reqMeth: TReqMeth, headers,
-               params: PStringTable): PRequest =
+               params: StringTableRef): PRequest =
   new(result)
   result.params = params
   result.body = body
@@ -200,7 +200,7 @@ proc createReq(jes: TJester, path, body, ip: string, reqMeth: TReqMeth, headers,
   result.settings = jes.settings
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
-proc sendStaticIfExists(client: PAsyncSocket, jes: TJester,
+proc sendStaticIfExists(client: AsyncSocket, jes: TJester,
                         paths: seq[string]) {.async.} =
   for p in paths:
     if existsFile(p):
@@ -228,14 +228,14 @@ proc parseReqMethod(reqMethod: string, output: var TReqMeth): bool =
     result = false
 
 template setMatches(req: expr) = req.matches = matches # Workaround.
-proc handleRequest(jes: TJester, client: PAsyncSocket,
+proc handleRequest(jes: TJester, client: AsyncSocket,
                    path, query, body, ip, reqMethod: string,
-                   headers: PStringTable) {.async.} =
+                   headers: StringTableRef) {.async.} =
   var params = {:}.newStringTable()
   try:
     for key, val in cgi.decodeData(query):
       params[key] = val
-  except ECgi:
+  except CgiError:
     echo("[Warning] Incorrect query. Got: ", query)
 
   var parsedReqMethod = HttpGet
@@ -250,7 +250,7 @@ proc handleRequest(jes: TJester, client: PAsyncSocket,
   var req: PRequest
   try:
     req = createReq(jes, path, body, ip, parsedReqMethod, headers, params)
-  except EInvalidValue:
+  except ValueError:
     if jes.settings.http:
       client.close()
       return
@@ -299,12 +299,12 @@ proc handleRequest(jes: TJester, client: PAsyncSocket,
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
 when false:
-  proc handleSCGIRequest(client: PAsyncSocket, input: string, headers: PStringTable) =
+  proc handleSCGIRequest(client: AsyncSocket, input: string, headers: StringTableRef) =
     handleRequest(client, headers["DOCUMENT_URI"], headers["QUERY_STRING"],
                   input, headers["REMOTE_ADDR"], headers["REQUEST_METHOD"], headers,
                   false)
 
-proc handleHTTPRequest(jes: TJester, req: asynchttpserver.TRequest) {.async.} =
+proc handleHTTPRequest(jes: TJester, req: asynchttpserver.Request) {.async.} =
   await handleRequest(jes, req.client, req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
@@ -328,7 +328,7 @@ proc serve*(
   if jes.settings.http:
     jes.httpServer = newAsyncHttpServer()
     asyncCheck jes.httpServer.serve(jes.settings.port,
-      proc (req: asynchttpserver.TRequest): Future[void] {.gcsafe.} =
+      proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
         handleHTTPRequest(jes, req))
     echo("Jester is making jokes at http://localhost" & jes.settings.appName &
          ":" & $jes.settings.port)
@@ -341,7 +341,7 @@ proc serve*(
 proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
   result = (re(s, flags), s)
 
-template resp*(code: THttpCode, 
+template resp*(code: HttpCode, 
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
   ## Sets ``(code, headers, content)`` as the response.
@@ -357,7 +357,7 @@ template resp*(content: string, contentType = "text/html"): stmt =
   response.data[2]["Content-Type"] = contentType
   response.data[3] = content
 
-template resp*(code: THttpCode, content: string,
+template resp*(code: HttpCode, content: string,
                contentType = "text/html"): stmt =
   ## Sets ``content`` as the response; ``code`` as the status code 
   ## and ``contentType`` as the Content-Type.
@@ -413,7 +413,7 @@ template cond*(condition: bool): stmt =
   # The ``route`` macro will perform a transformation which ensures a
   # call to this template behaves correctly.
 
-template halt*(code: THttpCode,
+template halt*(code: HttpCode,
                headers: varargs[tuple[key, val: string]],
                content: string): stmt =
   ## Immediately replies with the specified request. This means any further
@@ -429,13 +429,13 @@ template halt*(): stmt =
   ## All previously set values are **discarded**.
   halt(Http404, {"Content-Type": "text/html"}, error($Http404, jesterVer))
 
-template halt*(code: THttpCode): stmt =
+template halt*(code: HttpCode): stmt =
   halt(code, {"Content-Type": "text/html"}, error($code, jesterVer))
 
 template halt*(content: string): stmt =
   halt(Http404, {"Content-Type": "text/html"}, content)
 
-template halt*(code: THttpCode, content: string): stmt =
+template halt*(code: HttpCode, content: string): stmt =
   halt(code, {"Content-Type": "text/html"}, content)
 
 template attachment*(filename = ""): stmt =
@@ -480,36 +480,36 @@ proc makeUri*(request: jester.PRequest, address = "", absolute = true,
   ## ``address``. 
 
   # Check if address already starts with scheme://
-  var url = TUrl("")
+  var url = Url("")
   if address.find("://") != -1: return address
   if absolute:
-    url.add(TUrl("http$1://" % [if request.secure: "s" else: ""]))
+    url.add(Url("http$1://" % [if request.secure: "s" else: ""]))
     if request.port != (if request.secure: 443 else: 80):
-      url.add(TUrl(request.host & ":" & $request.port))
+      url.add(Url(request.host & ":" & $request.port))
     else:
-      url.add(TUrl(request.host))
+      url.add(Url(request.host))
   else:
-    url.add(TUrl("/"))
+    url.add(Url("/"))
 
-  if addScriptName: url.add(TUrl(request.appName))
-  url.add(if address != "": address.TUrl else: request.pathInfo.TUrl)
+  if addScriptName: url.add(Url(request.appName))
+  url.add(if address != "": address.Url else: request.pathInfo.Url)
   return string(url)
 
-proc makeUri*(request: jester.PRequest, address: TUrl = TUrl(""),
+proc makeUri*(request: jester.PRequest, address: Url = Url(""),
               absolute = true, addScriptName = true): string =
-  ## Overload for TUrl.
+  ## Overload for Url.
   return request.makeUri($address, absolute, addScriptName)
 
 template uri*(address = "", absolute = true, addScriptName = true): expr =
   ## Convenience template which can be used in a route.
   request.makeUri(address, absolute, addScriptName)
 
-proc daysForward*(days: int): TTimeInfo =
-  ## Returns a TTimeInfo object referring to the current time plus ``days``.
-  var tim = TTime(int(getTime()) + days * (60 * 60 * 24))
+proc daysForward*(days: int): TimeInfo =
+  ## Returns a TimeInfo object referring to the current time plus ``days``.
+  var tim = Time(int(getTime()) + days * (60 * 60 * 24))
   return tim.getGMTime()
 
-template setCookie*(name, value: string, expires: TTimeInfo): stmt =
+template setCookie*(name, value: string, expires: TimeInfo): stmt =
   ## Creates a cookie which stores ``value`` under ``name``.
   bind setCookie
   if response.data[2].hasKey("Set-Cookie"):
@@ -526,7 +526,7 @@ proc normalizeUri*(uri: string): string =
 
 # -- Macro
 
-proc copyParams(request: PRequest, params: PStringTable) =
+proc copyParams(request: PRequest, params: StringTableRef) =
   for key, val in params:
     request.params[key] = val
 
@@ -674,6 +674,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
           createRoute(caseStmtGetBody)
         of "post":
           createRoute(caseStmtPostBody)
+        else:
+          discard
       else:
         discard
     of nnkCommentStmt:
