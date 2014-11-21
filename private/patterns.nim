@@ -52,7 +52,7 @@ proc parsePattern*(pattern: string): TPattern =
     of '\\':
       inc i # Skip \
       if pattern[i] notin {'?', '@', '\\'}:
-        raise newException(EInvalidValue, 
+        raise newException(ValueError, 
                 "This character does not require escaping: " & pattern[i])
       text.add(pattern[i])
       inc i # Skip ``pattern[i]``
@@ -79,7 +79,7 @@ proc check(n: TNode, s: string, i: int): bool =
   if cutTo > s.len-1: return false
   return s.substr(i, cutTo) == n.text
 
-proc match*(pattern: TPattern, s: string): tuple[matched: bool, params: PStringTable] =
+proc match*(pattern: TPattern, s: string): tuple[matched: bool, params: StringTableRef] =
   var i = 0 # Location in ``s``.
 
   result.matched = true
