@@ -15,7 +15,6 @@ export HttpCode
 export TNodeType
 
 type
-  TRoute = tuple[meth: TReqMeth, m: PMatch, c: TCallback]
   
   TJester = object
     httpServer*: AsyncHttpServer
@@ -29,18 +28,8 @@ type
     http*: bool
     port*: Port
 
-  TRegexMatch = tuple[compiled: Regex, original: string]
-  
   TMatchType* = enum
     MRegex, MSpecial
-  
-  PMatch = ref TMatch
-  TMatch = object
-    case typ*: TMatchType
-    of MRegex:
-      regexMatch*: TRegexMatch
-    of MSpecial:
-      pattern*: TPattern
   
   TMultiData* = Table[string, tuple[fields: StringTableRef, body: string]]
   
@@ -132,8 +121,6 @@ proc send*(response: PResponse, content: string) {.async.} =
   ## Sends ``content`` immediately to the client socket.
   response.data.action = TCActionRaw
   await response.client.send(content)
-
-proc `$`*(r: TRegexMatch): string = return r.original
 
 proc stripAppName(path, appName: string): string =
   result = path
@@ -337,9 +324,6 @@ proc serve*(
     # TODO: 
     echo("Jester is making jokes for scgi at localhost" & jes.settings.appName &
          ":" & $jes.settings.port)
-
-proc regex*(s: string, flags = {reExtended, reStudy}): TRegexMatch =
-  result = (re(s, flags), s)
 
 template resp*(code: HttpCode, 
                headers: openarray[tuple[key, value: string]],
@@ -623,6 +607,86 @@ proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compilet
     for i in 0 .. <node.len:
       result[i] = transformRouteBody(node[i], thisRouteSym)
 
+proc createJesterPattern(body, 
+     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+  var ctPattern = ctParsePattern(body[i][1].strVal)
+  # -> let <patternMatchSym> = <ctPattern>.match(request.path)
+  return newLetStmt(patternMatchSym,
+      newCall(bindSym"match", ctPattern, parseExpr("request.path")))
+
+proc createRegexPattern(body, reMatchesSym,
+     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+  # -> let <patternMatchSym> = <ctPattern>.match(request.path)
+  return newLetStmt(patternMatchSym,
+      newCall(bindSym"find", parseExpr("request.path"), body[i][1],
+              reMatchesSym))
+
+proc determinePatternType(pattern: PNimrodNode): TMatchType {.compileTime.} =
+  case pattern.kind
+  of nnkStrLit:
+    return MSpecial
+  of nnkCallStrLit:
+    expectKind(pattern[0], nnkIdent)
+    case ($pattern[0].ident).normalize
+    of "re": return MRegex
+    else:
+      error("Invalid pattern type: " & $pattern[0].ident)
+  else:
+    error("Unexpected node kind: " & $pattern.kind)
+
+proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
+  ## Creates code which checks whether the current request path
+  ## matches a route.
+
+  var thisRouteSym = genSym(nskLabel, "thisRoute")
+  var patternMatchSym = genSym(nskLet, "patternMatchRet")
+
+  # Only used for Regex patterns.
+  var reMatchesSym = genSym(nskVar, "reMatches")
+  var reMatches = parseExpr("var reMatches: array[10, string]")
+  reMatches[0][0] = reMatchesSym
+  reMatches[0][1][1] = bindSym("MaxSubpatterns")
+
+  let patternType = determinePatternType(body[i][1])
+  case patternType
+  of MSpecial:
+    dest.add createJesterPattern(body, patternMatchSym, i)
+  of MRegex:
+    dest.add reMatches
+    dest.add createRegexPattern(body, reMatchesSym, patternMatchSym, i)
+  
+  var ifStmtBody = newStmtList()
+  case patternType
+  of MSpecial:
+    # -> copyParams(request, ret.params)
+    ifStmtBody.add newCall(bindSym"copyParams", newIdentNode"request",
+                           newDotExpr(patternMatchSym, newIdentNode"params"))
+  of MRegex:
+    # -> request.matches = <reMatchesSym>
+    ifStmtBody.add newAssignment(
+        newDotExpr(newIdentNode"request", newIdentNode"matches"),
+        reMatchesSym)
+  
+  ifStmtBody.add body[i][2].skipDo().transformRouteBody(thisRouteSym)
+  var checkActionIf = parseExpr("if checkAction(response): return true")
+  checkActionIf[0][0][0] = bindSym"checkAction"
+  ifStmtBody.add checkActionIf
+
+  let ifCond =
+    case patternType
+    of MSpecial:
+      newDotExpr(patternMatchSym, newIdentNode("matched"))
+    of MRegex:
+      infix(patternMatchSym, "!=", newIntLitNode(-1))
+
+  # -> if <patternMatchSym>.matched: <ifStmtBody>
+  var ifStmt = newIfStmt((ifCond, ifStmtBody))
+
+  # -> block <thisRouteSym>: <ifStmt>
+  var blockStmt = newNimNode(nnkBlockStmt).add(
+    thisRouteSym, ifStmt)
+  dest.add blockStmt
+
 macro routes*(body: stmt): stmt {.immediate.} =
   #echo(treeRepr(body))
   result = newStmtList()
@@ -646,34 +710,11 @@ macro routes*(body: stmt): stmt {.immediate.} =
       let cmdName = body[i][0].ident.`$`.normalize
       case cmdName
       of "get", "post":
-        template createRoute(dest: PNimrodNode) =
-          var thisRouteSym = genSym(nskLabel, "thisRoute")
-          var patternMatchSym = genSym(nskLet, "patternMatchRet")
-          var ctPattern = ctParsePattern(body[i][1].strVal)
-          # -> let <patternMatchSym> = <ctPattern>.match(request.path)
-          dest.add newLetStmt(patternMatchSym,
-              newCall(bindSym"match", ctPattern, parseExpr("request.path")))
-          var ifStmtBody = newStmtList()
-          # -> copyParams(request, ret.params)
-          ifStmtBody.add newCall(bindSym"copyParams", newIdentNode"request",
-                                 newDotExpr(patternMatchSym, newIdentNode"params"))
-          ifStmtBody.add body[i][2].skipDo().transformRouteBody(thisRouteSym)
-          var checkActionIf = parseExpr("if checkAction(response): return true")
-          checkActionIf[0][0][0] = bindSym"checkAction"
-          ifStmtBody.add checkActionIf
-          # -> if <patternMatchSym>.matched: <ifStmtBody>
-          var ifStmt = newIfStmt(
-              (newDotExpr(patternMatchSym, newIdentNode("matched")), ifStmtBody)
-            )
-          # -> block <thisRouteSym>: <ifStmt>
-          var blockStmt = newNimNode(nnkBlockStmt).add(
-            thisRouteSym, ifStmt)
-          dest.add blockStmt
         case cmdName
         of "get":
-          createRoute(caseStmtGetBody)
+          createRoute(body, caseStmtGetBody, i)
         of "post":
-          createRoute(caseStmtPostBody)
+          createRoute(body, caseStmtPostBody, i)
         else:
           discard
       else:
@@ -702,7 +743,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
   result.add(matchProc)
 
   result.add parseExpr("jester.serve(match, settings)")
-  #echo toStrLit(result)
+  echo toStrLit(result)
   #echo treeRepr(result)
 
   

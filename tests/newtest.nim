@@ -1,4 +1,4 @@
-import jester, asyncdispatch, strutils, math, os, asyncnet
+import jester, asyncdispatch, strutils, math, os, asyncnet, re
 
 routes:
   get "/":
@@ -80,5 +80,8 @@ routes:
   <br />
   <input type="submit" name="submit" value="Submit" />
   </form>"""
+
+  get re"^\/([0-9]{2})\.html$":
+    resp request.matches[0]
 
 runForever()
