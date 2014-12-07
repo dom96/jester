@@ -1,17 +1,9 @@
 # Jester
 
-####Note. 
-
-In order to use this version of Jester, you will need the "bigbreak" branch of Nimrod.
-
-View here for more info:
-
-[https://github.com/Araq/Nimrod/tree/bigbreak](https://github.com/Araq/Nimrod/tree/bigbreak)
-
-___
-
 The sinatra-like web framework for Nimrod. Jester provides a DSL for quickly 
-creating web applications in Nimrod.
+creating web applications in Nim.
+
+**Note:** Jester requires Nim version 0.10.0. 
 
 ```nimrod
 # example.nim
@@ -77,6 +69,19 @@ In this case you might want to make the leading '/' optional too, you can do thi
 by changing the pattern to "/hello/?@name?". This is useful because Jester will
 not match "/hello" if the leading '/' is not made optional.
 
+### Regex
+
+Regex can also be used as a route pattern. The subpattern captures will be
+placed in ``request.matches`` when a route is matched. For example:
+
+```nimrod
+get re"^\/([0-9]{2})\.html$":
+  resp request.matches[0]
+```
+
+This will match URLs of the form ``/15.html``. In this case
+``request.matches[0]`` will be ``15``.
+
 ## Conditions
 
 Jester supports conditions, however they are limited to a simple ``cond`` template.
@@ -134,6 +139,32 @@ get "/":
 ```
 
 They can then be accessed from the ``request.cookies`` PStringTable.
+
+## Request object
+
+The request object holds all the information about the current request.
+You can access it from a route using the ``request`` variable. It is defined as:
+
+```nimrod
+PRequest* = ref object
+  params*: PStringTable         ## Parameters from the pattern, but also the
+                                ## query string.
+  matches*: array[0..9, string] ## Matches if this is a regex pattern.
+  body*: string                 ## Body of the request, only for POST.
+                                ## You're probably looking for ``formData`` instead.
+  headers*: PStringTable        ## Headers received with the request. Retrieving these is case insensitive.
+  formData*: TMultiData         ## Form data; only present for multipart/form-data
+  port*: int
+  host*: string
+  appName*: string              ## This is set by the user in ``run``, it is overriden by the "SCRIPT_NAME" scgi parameter.
+  pathInfo*: string             ## This is ``.path`` without ``.appName``.
+  secure*: bool
+  path*: string                 ## Path of request.
+  cookies*: PStringTable        ## Cookies from the browser.
+  ip*: string                   ## IP address of the requesting client.
+  reqMeth*: TReqMeth            ## Request method: HttpGet or HttpPost 
+  settings*: PSettings
+```
 
 ## Examples
 
