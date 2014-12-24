@@ -2,9 +2,9 @@
 # MIT License - Look at license.txt for details.
 import htmlgen
 proc error*(err, jesterVer: string): string =
-   return html(head(title(err)), 
-               body(h1(err), 
-                    hr(),
+   return html(head(title(err)),
+               body(h1(err),
+                    "<hr/>",
                     p("Jester " & jesterVer),
                     style = "text-align: center;"
                ),
