@@ -538,8 +538,10 @@ proc checkAction(response: PResponse): bool =
     assert(false)
 
 proc skipDo(node: PNimrodNode): PNimrodNode {.compiletime.} =
-  expectKind node, nnkDo
-  result = node[6]
+  if node.kind == nnkDo:
+    result = node[6]
+  else:
+    result = result
 
 proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
   result = newNimNode(nnkPrefix)
