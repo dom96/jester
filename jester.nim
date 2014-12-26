@@ -34,20 +34,26 @@ type
   TMultiData* = Table[string, tuple[fields: StringTableRef, body: string]]
   
   PRequest* = ref object
-    params*: StringTableRef         ## Parameters from the pattern, but also the
+    params*: StringTableRef       ## Parameters from the pattern, but also the
                                   ## query string.
-    matches*: array[0..9, string] ## Matches if this is a regex pattern.
+    matches*: array[MaxSubpatterns, string] ## Matches if this is a regex
+                                            ## pattern.
     body*: string                 ## Body of the request, only for POST.
-                                  ## You're probably looking for ``formData`` instead.
-    headers*: StringTableRef        ## Headers received with the request. Retrieving these is case insensitive.
-    formData*: TMultiData         ## Form data; only present for multipart/form-data
+                                  ## You're probably looking for ``formData``
+                                  ## instead.
+    headers*: StringTableRef      ## Headers received with the request.
+                                  ## Retrieving these is case insensitive.
+    formData*: TMultiData         ## Form data; only present for
+                                  ## multipart/form-data
     port*: int
     host*: string
-    appName*: string              ## This is set by the user in ``run``, it is overriden by the "SCRIPT_NAME" scgi parameter.
+    appName*: string              ## This is set by the user in ``run``, it is
+                                  ## overriden by the "SCRIPT_NAME" scgi
+                                  ## parameter.
     pathInfo*: string             ## This is ``.path`` without ``.appName``.
     secure*: bool
     path*: string                 ## Path of request.
-    cookies*: StringTableRef        ## Cookies from the browser.
+    cookies*: StringTableRef      ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
     reqMeth*: TReqMeth            ## Request method: HttpGet or HttpPost 
     settings*: PSettings
@@ -645,7 +651,7 @@ proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
 
   # Only used for Regex patterns.
   var reMatchesSym = genSym(nskVar, "reMatches")
-  var reMatches = parseExpr("var reMatches: array[10, string]")
+  var reMatches = parseExpr("var reMatches: array[20, string]")
   reMatches[0][0] = reMatchesSym
   reMatches[0][1][1] = bindSym("MaxSubpatterns")
 
