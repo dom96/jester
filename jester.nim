@@ -15,25 +15,24 @@ export HttpCode
 export TNodeType
 
 type
-  
-  TJester = object
+  Jester = object
     httpServer*: AsyncHttpServer
-    settings: PSettings
-    matchProc: proc (request: PRequest, response: PResponse): Future[bool] {.gcsafe.}
+    settings: Settings
+    matchProc: proc (request: Request, response: Response): Future[bool] {.gcsafe.}
 
-  PSettings* = ref object
+  Settings* = ref object
     staticDir*: string # By default ./public
     appName*: string
     mimes*: MimeDb
     http*: bool
     port*: Port
 
-  TMatchType* = enum
+  MatchType* = enum
     MRegex, MSpecial
   
-  TMultiData* = Table[string, tuple[fields: StringTableRef, body: string]]
+  MultiData* = Table[string, tuple[fields: StringTableRef, body: string]]
   
-  PRequest* = ref object
+  Request* = ref object
     params*: StringTableRef       ## Parameters from the pattern, but also the
                                   ## query string.
     matches*: array[MaxSubpatterns, string] ## Matches if this is a regex
@@ -43,7 +42,7 @@ type
                                   ## instead.
     headers*: StringTableRef      ## Headers received with the request.
                                   ## Retrieving these is case insensitive.
-    formData*: TMultiData         ## Form data; only present for
+    formData*: MultiData          ## Form data; only present for
                                   ## multipart/form-data
     port*: int
     host*: string
@@ -55,22 +54,26 @@ type
     path*: string                 ## Path of request.
     cookies*: StringTableRef      ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
-    reqMeth*: TReqMeth            ## Request method: HttpGet or HttpPost 
-    settings*: PSettings
+    reqMeth*: ReqMeth             ## Request method: HttpGet or HttpPost
+    settings*: Settings
 
-  PResponse* = ref object
+  Response* = ref object
     http: bool
     client*: AsyncSocket ## For raw mode.
-    data*: tuple[action: TCallbackAction, code: HttpCode,
+    data*: tuple[action: CallbackAction, code: HttpCode,
                  headers: StringTableRef, content: string]
 
-  TReqMeth* = enum
+  ReqMeth* = enum
     HttpGet = "GET", HttpPost = "POST"
 
-  TCallbackAction* = enum
+  CallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
 
-  TCallback = proc (request: jester.PRequest, response: PResponse): Future[void] {.gcsafe.}
+  Callback = proc (request: jester.Request, response: Response): Future[void] {.gcsafe.}
+
+{.deprecated: [TJester: Jester, PSettings: Settings, TMatchType: MatchType,
+  TMultiData: MultiData, PRequest: Request, PResponse: Response,
+  TReqMeth: ReqMeth, TCallbackAction: CallbackAction, TCallback: Callback].}
 
 const jesterVer = "0.1.0"
 
