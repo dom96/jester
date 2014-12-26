@@ -550,7 +550,7 @@ proc skipDo(node: PNimrodNode): PNimrodNode {.compiletime.} =
   if node.kind == nnkDo:
     result = node[6]
   else:
-    result = result
+    result = node
 
 proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
   result = newNimNode(nnkPrefix)
