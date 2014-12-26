@@ -147,20 +147,26 @@ You can access it from a route using the ``request`` variable. It is defined as:
 
 ```nimrod
 PRequest* = ref object
-  params*: PStringTable         ## Parameters from the pattern, but also the
+  params*: StringTableRef       ## Parameters from the pattern, but also the
                                 ## query string.
-  matches*: array[0..9, string] ## Matches if this is a regex pattern.
+  matches*: array[MaxSubpatterns, string] ## Matches if this is a regex
+                                          ## pattern.
   body*: string                 ## Body of the request, only for POST.
-                                ## You're probably looking for ``formData`` instead.
-  headers*: PStringTable        ## Headers received with the request. Retrieving these is case insensitive.
-  formData*: TMultiData         ## Form data; only present for multipart/form-data
+                                ## You're probably looking for ``formData``
+                                ## instead.
+  headers*: StringTableRef      ## Headers received with the request.
+                                ## Retrieving these is case insensitive.
+  formData*: TMultiData         ## Form data; only present for
+                                ## multipart/form-data
   port*: int
   host*: string
-  appName*: string              ## This is set by the user in ``run``, it is overriden by the "SCRIPT_NAME" scgi parameter.
+  appName*: string              ## This is set by the user in ``run``, it is
+                                ## overriden by the "SCRIPT_NAME" scgi
+                                ## parameter.
   pathInfo*: string             ## This is ``.path`` without ``.appName``.
   secure*: bool
   path*: string                 ## Path of request.
-  cookies*: PStringTable        ## Cookies from the browser.
+  cookies*: StringTableRef      ## Cookies from the browser.
   ip*: string                   ## IP address of the requesting client.
   reqMeth*: TReqMeth            ## Request method: HttpGet or HttpPost 
   settings*: PSettings
