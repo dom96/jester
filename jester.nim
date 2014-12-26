@@ -108,7 +108,7 @@ proc statusContent(c: AsyncSocket, status, content: string,
   else:
     echo("Could not send response: ", osErrorMsg(osLastError()))
 
-proc sendHeaders*(response: PResponse, status: HttpCode,
+proc sendHeaders*(response: Response, status: HttpCode,
                   headers: StringTableRef) {.async.} =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
@@ -116,17 +116,17 @@ proc sendHeaders*(response: PResponse, status: HttpCode,
   response.data.action = TCActionRaw
   discard await sendHeaders(response.client, $status, headers, response.http)
 
-proc sendHeaders*(response: PResponse, status: HttpCode): Future[void] =
+proc sendHeaders*(response: Response, status: HttpCode): Future[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
   response.sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
 
-proc sendHeaders*(response: PResponse): Future[void] =
+proc sendHeaders*(response: Response): Future[void] =
   ## Sends ``Http200`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
   response.sendHeaders(Http200)
 
-proc send*(response: PResponse, content: string) {.async.} =
+proc send*(response: Response, content: string) {.async.} =
   ## Sends ``content`` immediately to the client socket.
   response.data.action = TCActionRaw
   await response.client.send(content)
@@ -162,8 +162,8 @@ proc renameHeaders(headers: StringTableRef): StringTableRef =
       #result[key] = val
       discard
 
-proc createReq(jes: TJester, path, body, ip: string, reqMeth: TReqMeth, headers,
-               params: StringTableRef): PRequest =
+proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
+               params: StringTableRef): Request =
   new(result)
   result.params = params
   result.body = body
@@ -196,7 +196,7 @@ proc createReq(jes: TJester, path, body, ip: string, reqMeth: TReqMeth, headers,
   result.settings = jes.settings
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
-proc sendStaticIfExists(client: AsyncSocket, jes: TJester,
+proc sendStaticIfExists(client: AsyncSocket, jes: Jester,
                         paths: seq[string]) {.async.} =
   for p in paths:
     if existsFile(p):
@@ -213,7 +213,7 @@ proc sendStaticIfExists(client: AsyncSocket, jes: TJester,
                        {"Content-type": "text/html"}.newStringTable,
                        jes.settings.http)
 
-proc parseReqMethod(reqMethod: string, output: var TReqMeth): bool =
+proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
   result = true
   case reqMethod.normalize
   of "get":
@@ -224,7 +224,7 @@ proc parseReqMethod(reqMethod: string, output: var TReqMeth): bool =
     result = false
 
 template setMatches(req: expr) = req.matches = matches # Workaround.
-proc handleRequest(jes: TJester, client: AsyncSocket,
+proc handleRequest(jes: Jester, client: AsyncSocket,
                    path, query, body, ip, reqMethod: string,
                    headers: StringTableRef) {.async.} =
   var params = {:}.newStringTable()
@@ -243,7 +243,7 @@ proc handleRequest(jes: TJester, client: AsyncSocket,
 
   var matched = false
   
-  var req: PRequest
+  var req: Request
   try:
     req = createReq(jes, path, body, ip, parsedReqMethod, headers, params)
   except ValueError:
@@ -253,7 +253,7 @@ proc handleRequest(jes: TJester, client: AsyncSocket,
     else:
       raise
 
-  var resp = PResponse(client: client, http: jes.settings.http)
+  var resp = Response(client: client, http: jes.settings.http)
 
   echo(reqMethod, " ", req.pathInfo)
 
@@ -300,24 +300,24 @@ when false:
                   input, headers["REMOTE_ADDR"], headers["REQUEST_METHOD"], headers,
                   false)
 
-proc handleHTTPRequest(jes: TJester, req: asynchttpserver.Request) {.async.} =
+proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request) {.async.} =
   await handleRequest(jes, req.client, req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
 proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
-                  appName = "", http = true): PSettings =
-  result = PSettings(staticDir: staticDir,
+                  appName = "", http = true): Settings =
+  result = Settings(staticDir: staticDir,
                      appName: appName,
                      http: http,
                      port: port)
 
 proc serve*(
     match:
-      proc (request: PRequest, response: PResponse): Future[bool] {.gcsafe.},
-    settings: PSettings = newSettings()) =
+      proc (request: Request, response: Response): Future[bool] {.gcsafe.},
+    settings: Settings = newSettings()) =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
-  var jes: TJester
+  var jes: Jester
   jes.settings = settings
   jes.settings.mimes = newMimetypes()
   jes.matchProc = match
@@ -448,7 +448,7 @@ template `@`*(s: string): expr =
   ## returned if parameter doesn't exist.
   request.params[s]
 
-proc setStaticDir*(request: PRequest, dir: string) =
+proc setStaticDir*(request: Request, dir: string) =
   ## Sets the directory in which Jester will look for static files. It is
   ## ``./public`` by default.
   ##
@@ -459,13 +459,13 @@ proc setStaticDir*(request: PRequest, dir: string) =
   ## (``./public`` is not included in the final URL)
   request.settings.staticDir = dir
 
-proc getStaticDir*(request: PRequest): string =
+proc getStaticDir*(request: Request): string =
   ## Gets the directory in which Jester will look for static files.
   ##
   ## ``./public`` by default.
   return request.settings.staticDir
 
-proc makeUri*(request: jester.PRequest, address = "", absolute = true,
+proc makeUri*(request: jester.Request, address = "", absolute = true,
               addScriptName = true): string =
   ## Creates a URI based on the current request. If ``absolute`` is true it will
   ## add the scheme (Usually 'http://'), `request.host` and `request.port`.
@@ -488,7 +488,7 @@ proc makeUri*(request: jester.PRequest, address = "", absolute = true,
   url.add(if address != "": address.Url else: request.pathInfo.Url)
   return string(url)
 
-proc makeUri*(request: jester.PRequest, address: Url = Url(""),
+proc makeUri*(request: jester.Request, address: Url = Url(""),
               absolute = true, addScriptName = true): string =
   ## Overload for Url.
   return request.makeUri($address, absolute, addScriptName)
@@ -519,11 +519,11 @@ proc normalizeUri*(uri: string): string =
 
 # -- Macro
 
-proc copyParams(request: PRequest, params: StringTableRef) =
+proc copyParams(request: Request, params: StringTableRef) =
   for key, val in params:
     request.params[key] = val
 
-proc guessAction(resp: PResponse) =
+proc guessAction(resp: Response) =
   if resp.data.action == TCActionNothing:
     if resp.data.content != "":
       resp.data.action = TCActionSend
@@ -536,7 +536,7 @@ proc guessAction(resp: PResponse) =
       resp.data.headers = {"Content-Type": "text/html"}.newStringTable
       resp.data.content = error($Http502, jesterVer)
 
-proc checkAction(response: PResponse): bool =
+proc checkAction(response: Response): bool =
   guessAction(response)
   case response.data.action
   of TCActionSend, TCActionRaw:
@@ -632,7 +632,7 @@ proc createRegexPattern(body, reMatchesSym,
       newCall(bindSym"find", parseExpr("request.path"), body[i][1],
               reMatchesSym))
 
-proc determinePatternType(pattern: PNimrodNode): TMatchType {.compileTime.} =
+proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
   case pattern.kind
   of nnkStrLit:
     return MSpecial
@@ -747,14 +747,14 @@ macro routes*(body: stmt): stmt {.immediate.} =
 
   matchBody.add caseStmt
 
-  var matchProc = parseStmt("proc match(request: PRequest," & 
-    "response: PResponse): Future[bool] {.async.} = discard")
+  var matchProc = parseStmt("proc match(request: Request," & 
+    "response: Response): Future[bool] {.async.} = discard")
   matchProc[0][6] = matchBody
   result.add(outsideStmts)
   result.add(matchProc)
 
   result.add parseExpr("jester.serve(match, settings)")
-  #echo toStrLit(result)
+  echo toStrLit(result)
   #echo treeRepr(result)
 
   
