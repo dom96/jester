@@ -25,7 +25,6 @@ type
     staticDir*: string # By default ./public
     appName*: string
     mimes*: MimeDb
-    http*: bool
     port*: Port
 
   MatchType* = enum
@@ -57,7 +56,6 @@ type
     settings*: Settings
 
   Response* = ref object
-    http: bool
     client*: AsyncSocket ## For raw mode.
     data*: tuple[action: CallbackAction, code: HttpCode,
                  headers: StringTableRef, content: string]
@@ -76,25 +74,24 @@ type
 
 const jesterVer = "0.1.0"
 
-proc sendHeaders(c: AsyncSocket, status: string, headers: StringTableRef,
-                 http: bool): Future[bool] {.async.} =
+proc sendHeaders(c: AsyncSocket, status: string,
+                 headers: StringTableRef): Future[bool] {.async.} =
   try:
     var strHeaders = ""
     if headers != nil:
       for key, value in headers:
         strHeaders.add(key & ": " & value & "\c\L")
-    let data = (if http: "HTTP/1.1 " else: "Status: ") & status & "\c\L" &
-        strHeaders & "\c\L"
+    let data = "HTTP/1.1 " & status & "\c\L" & strHeaders & "\c\L"
     await c.send(data)
     result = true
   except:
     echo("Could not send response: ", getCurrentExceptionMsg())
 
 proc statusContent(c: AsyncSocket, status, content: string,
-                   headers: StringTableRef, http: bool) {.async.} =
+                   headers: StringTableRef) {.async.} =
   var newHeaders = headers
   newHeaders["Content-Length"] = $content.len
-  var sent = await c.sendHeaders(status, newHeaders, http)
+  var sent = await c.sendHeaders(status, newHeaders)
   if sent:
     try:
       await c.send(content)
@@ -113,7 +110,7 @@ proc sendHeaders*(response: Response, status: HttpCode,
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
   response.data.action = TCActionRaw
-  discard await sendHeaders(response.client, $status, headers, response.http)
+  discard await sendHeaders(response.client, $status, headers)
 
 proc sendHeaders*(response: Response, status: HttpCode): Future[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
@@ -147,32 +144,13 @@ proc stripAppName(path, appName: string): string =
           "Expected script name at beginning of path. Got path: " &
            path & " script name: " & slashAppName)
 
-proc renameHeaders(headers: StringTableRef): StringTableRef =
-  ## Renames headers beginning with HTTP_.
-  ## For example, HTTP_CONTENT_TYPE becomes Content-Type.
-  ## Removes any headers that don't begin with HTTP_
-  ## This should only be used for SCGI.
-  result = newStringTable(modeCaseInsensitive)
-  for key, val in headers:
-    if key.startsWith("HTTP_"):
-      result[key[5 .. -1].replace('_', '-').toLower()] = val
-    else:
-      # TODO: Should scgi-specific headers be preserved?
-      #result[key] = val
-      discard
-
 proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
                params: StringTableRef): Request =
   new(result)
   result.params = params
   result.body = body
   result.appName = jes.settings.appName
-  if jes.settings.http:
-    result.headers = headers
-  else:
-    if headers["SCRIPT_NAME"] != "":
-      result.appName = headers["SCRIPT_NAME"]
-    result.headers = renameHeaders(headers)
+  result.headers = headers
   if result.headers["Content-Type"].startswith("application/x-www-form-urlencoded"):
     try:
       parseUrlQuery(body, result.params)
@@ -203,14 +181,12 @@ proc sendStaticIfExists(client: AsyncSocket, jes: Jester,
       # TODO: Check file permissions
       let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. -1])
       await client.statusContent($Http200, file,
-                           {"Content-type": mimetype}.newStringTable,
-                           jes.settings.http)
+                           {"Content-type": mimetype}.newStringTable)
       return
   
   # If we get to here then no match could be found.
   await client.statusContent($Http404, error($Http404, jesterVer), 
-                       {"Content-type": "text/html"}.newStringTable,
-                       jes.settings.http)
+                       {"Content-type": "text/html"}.newStringTable)
 
 proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
   result = true
@@ -236,8 +212,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   var parsedReqMethod = HttpGet
   if not parseReqMethod(reqMethod, parsedReqMethod):
     await client.statusContent($Http400, error($Http400, jesterVer),
-                           {"Content-type": "text/html"}.newStringTable,
-                           jes.settings.http)
+                           {"Content-type": "text/html"}.newStringTable)
     return
 
   var matched = false
@@ -246,13 +221,10 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   try:
     req = createReq(jes, path, body, ip, parsedReqMethod, headers, params)
   except ValueError:
-    if jes.settings.http:
-      client.close()
-      return
-    else:
-      raise
+    client.close()
+    return
 
-  var resp = Response(client: client, http: jes.settings.http)
+  var resp = Response(client: client)
 
   echo(reqMethod, " ", req.pathInfo)
 
@@ -271,14 +243,14 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     let error = traceback & matchProcFut.error.msg
     await client.statusContent($Http502,
         routeException(error, jesterVer),
-        {"Content-Type": "text/html"}.newStringTable, jes.settings.http)
+        {"Content-Type": "text/html"}.newStringTable)
 
     return
 
   if matched:
     if resp.data.action == TCActionSend:
       await client.statusContent($resp.data.code, resp.data.content,
-                                  resp.data.headers, jes.settings.http)
+                                  resp.data.headers)
     else:
       echo("  ", resp.data.action)
   else:
@@ -293,21 +265,14 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
-when false:
-  proc handleSCGIRequest(client: AsyncSocket, input: string, headers: StringTableRef) =
-    handleRequest(client, headers["DOCUMENT_URI"], headers["QUERY_STRING"],
-                  input, headers["REMOTE_ADDR"], headers["REQUEST_METHOD"], headers,
-                  false)
-
 proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request) {.async.} =
   await handleRequest(jes, req.client, req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
 proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
-                  appName = "", http = true): Settings =
+                  appName = ""): Settings =
   result = Settings(staticDir: staticDir,
                      appName: appName,
-                     http: http,
                      port: port)
 
 proc serve*(
@@ -320,18 +285,13 @@ proc serve*(
   jes.settings = settings
   jes.settings.mimes = newMimetypes()
   jes.matchProc = match
-  if jes.settings.http:
-    jes.httpServer = newAsyncHttpServer()
-    asyncCheck jes.httpServer.serve(jes.settings.port,
-      proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
-        handleHTTPRequest(jes, req))
-    echo("Jester is making jokes at http://localhost" & jes.settings.appName &
-         ":" & $jes.settings.port)
-  else:
-    assert false, "TODO: SCGI not supported yet."
-    # TODO: 
-    echo("Jester is making jokes for scgi at localhost" & jes.settings.appName &
-         ":" & $jes.settings.port)
+  jes.httpServer = newAsyncHttpServer()
+
+  asyncCheck jes.httpServer.serve(jes.settings.port,
+    proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
+      handleHTTPRequest(jes, req))
+  echo("Jester is making jokes at http://localhost" & jes.settings.appName &
+       ":" & $jes.settings.port)
 
 template resp*(code: HttpCode, 
                headers: openarray[tuple[key, value: string]],
