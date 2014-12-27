@@ -754,7 +754,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
   result.add(matchProc)
 
   result.add parseExpr("jester.serve(match, settings)")
-  echo toStrLit(result)
+  #echo toStrLit(result)
   #echo treeRepr(result)
 
   
