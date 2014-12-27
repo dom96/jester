@@ -2,22 +2,22 @@
 # MIT License - Look at license.txt for details.
 import parseutils, strtabs
 type
-  TNodeType* = enum
-    TNodeText, TNodeField
-  TNode* = object
-    typ*: TNodeType
+  NodeType* = enum
+    NodeText, NodeField
+  Node* = object
+    typ*: NodeType
     text*: string
     optional*: bool
   
-  TPattern* = seq[TNode]
+  Pattern* = seq[Node]
 
 #/show/@id/?
-proc parsePattern*(pattern: string): TPattern =
+proc parsePattern*(pattern: string): Pattern =
   result = @[]
-  template addNode(result: var TPattern, theT: TNodeType, theText: string,
+  template addNode(result: var Pattern, theT: NodeType, theText: string,
                    isOptional: bool): stmt =
     block:
-      var newNode: TNode
+      var newNode: Node
       newNode.typ = theT
       newNode.text = theText
       newNode.optional = isOptional
@@ -30,25 +30,25 @@ proc parsePattern*(pattern: string): TPattern =
     of '@':
       # Add the stored text.
       if text != "":
-        result.addNode(TNodeText, text, false)
+        result.addNode(NodeText, text, false)
         text = ""
       # Parse named parameter.
       inc(i) # Skip @
       var nparam = ""
       i += pattern.parseUntil(nparam, {'/', '?'}, i)
       var optional = pattern[i] == '?'
-      result.addNode(TNodeField, nparam, optional)
+      result.addNode(NodeField, nparam, optional)
       if pattern[i] == '?': inc(i) # Only skip ?. / should not be skipped.
     of '?':
       var optionalChar = text[text.len-1]
       setLen(text, text.len-1) # Truncate ``text``.
       # Add the stored text.
       if text != "":
-        result.addNode(TNodeText, text, false)
+        result.addNode(NodeText, text, false)
         text = ""
       # Add optional char.
       inc(i) # Skip ?
-      result.addNode(TNodeText, $optionalChar, true)
+      result.addNode(NodeText, $optionalChar, true)
     of '\\':
       inc i # Skip \
       if pattern[i] notin {'?', '@', '\\'}:
@@ -64,22 +64,22 @@ proc parsePattern*(pattern: string): TPattern =
       inc(i)
   
   if text != "":
-    result.addNode(TNodeText, text, false)
+    result.addNode(NodeText, text, false)
 
-proc findNextText(pattern: TPattern, i: int, toNode: var TNode): bool =
-  ## Finds the next TNodeText in the pattern, starts looking from ``i``.
+proc findNextText(pattern: Pattern, i: int, toNode: var Node): bool =
+  ## Finds the next NodeText in the pattern, starts looking from ``i``.
   result = false
   for n in i..pattern.len()-1:
-    if pattern[n].typ == TNodeText:
+    if pattern[n].typ == NodeText:
       toNode = pattern[n]
       return true
 
-proc check(n: TNode, s: string, i: int): bool =
+proc check(n: Node, s: string, i: int): bool =
   let cutTo = (n.text.len-1)+i
   if cutTo > s.len-1: return false
   return s.substr(i, cutTo) == n.text
 
-proc match*(pattern: TPattern, s: string): tuple[matched: bool, params: StringTableRef] =
+proc match*(pattern: Pattern, s: string): tuple[matched: bool, params: StringTableRef] =
   var i = 0 # Location in ``s``.
 
   result.matched = true
@@ -87,7 +87,7 @@ proc match*(pattern: TPattern, s: string): tuple[matched: bool, params: StringTa
   
   for ncount, node in pattern:
     case node.typ
-    of TNodeText:
+    of NodeText:
       if node.optional:
         if check(node, s, i):
           inc(i, node.text.len) # Skip over this optional character.
@@ -101,8 +101,8 @@ proc match*(pattern: TPattern, s: string): tuple[matched: bool, params: StringTa
           # No match.
           result.matched = false
           return
-    of TNodeField:
-      var nextTxtNode: TNode
+    of NodeField:
+      var nextTxtNode: Node
       var stopChar = '/'
       if findNextText(pattern, ncount, nextTxtNode):
         stopChar = nextTxtNode.text[0]

@@ -12,7 +12,8 @@ from cgi import decodeData, CgiError
 export strtabs
 export tables
 export HttpCode
-export TNodeType
+export NodeType # TODO: Couldn't bindsym this.
+export MultiData
 
 type
   Jester = object
@@ -29,8 +30,6 @@ type
 
   MatchType* = enum
     MRegex, MSpecial
-  
-  MultiData* = Table[string, tuple[fields: StringTableRef, body: string]]
   
   Request* = ref object
     params*: StringTableRef       ## Parameters from the pattern, but also the
@@ -561,7 +560,7 @@ proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
                    optional: PNimrodNode) {.compiletime.} =
     var objConstr = newNimNode(nnkObjConstr)
 
-    objConstr.add bindSym("TNode")
+    objConstr.add bindSym("Node")
     objConstr.add newNimNode(nnkExprColonExpr).add(
         newIdentNode("typ"), typ)
     objConstr.add newNimNode(nnkExprColonExpr).add(
@@ -576,8 +575,8 @@ proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
     # TODO: Can't bindSym the node type. issue #1319
     result.addPattNode(
       case node.typ
-      of TNodeText: newIdentNode("TNodeText")
-      of TNodeField: newIdentNode("TNodeField"),
+      of NodeText: newIdentNode("NodeText")
+      of NodeField: newIdentNode("NodeField"),
       newStrLitNode(node.text),
       newIdentNode(if node.optional: "true" else: "false"))
 
