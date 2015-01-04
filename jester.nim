@@ -298,7 +298,7 @@ template resp*(code: HttpCode,
                content: string): stmt =
   ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend, newStringTable
-  response.data = (TCActionSend, v[0], v[1].newStringTable, v[2])
+  response.data = (TCActionSend, code, headers.newStringTable, content)
 
 template resp*(content: string, contentType = "text/html"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code 
