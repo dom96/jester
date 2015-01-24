@@ -711,11 +711,11 @@ macro routes*(body: stmt): stmt {.immediate.} =
         of "delete":
           createRoute(body, caseStmtDeleteBody, i)
         of "head":
-          createRoute(body, caseStmtDeleteBody, i)
+          createRoute(body, caseStmtHeadBody, i)
         of "options":
-          createRoute(body, caseStmtDeleteBody, i)
+          createRoute(body, caseStmtOptionsBody, i)
         of "trace":
-          createRoute(body, caseStmtDeleteBody, i)
+          createRoute(body, caseStmtTraceBody, i)
         else:
           discard
       else:
