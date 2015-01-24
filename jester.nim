@@ -3,7 +3,7 @@
 import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
         scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros
 
-import private/patterns, 
+import private/patterns,
        private/errorpages,
        private/utils
 
@@ -29,7 +29,7 @@ type
 
   MatchType* = enum
     MRegex, MSpecial
-  
+
   Request* = ref object
     params*: StringTableRef       ## Parameters from the pattern, but also the
                                   ## query string.
@@ -61,7 +61,13 @@ type
                  headers: StringTableRef, content: string]
 
   ReqMeth* = enum
-    HttpGet = "GET", HttpPost = "POST"
+    HttpGet = "GET",
+    HttpPost = "POST",
+    HttpPut = "PUT",
+    HttpDelete = "DELETE",
+    HttpHead = "HEAD",
+    HttpOptions = "OPTIONS",
+    HttpTrace = "TRACE"
 
   CallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
@@ -98,7 +104,7 @@ proc statusContent(c: AsyncSocket, status, content: string,
       sent = true
     except:
       sent = false
-  
+
   if sent:
     echo("  ", status, " ", headers)
   else:
@@ -133,7 +139,7 @@ proc stripAppName(path, appName: string): string =
     var slashAppName = appName
     if slashAppName[0] != '/' and path[0] == '/':
       slashAppName = '/' & slashAppName
-  
+
     if path.startsWith(slashAppName):
       if slashAppName.len() == path.len:
         return "/"
@@ -157,7 +163,7 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
     except: echo("[Warning] Could not parse URL query.")
   elif result.headers["Content-Type"].startsWith("multipart/form-data"):
     result.formData = parseMPFD(result.headers["Content-Type"], body)
-  if result.headers["SERVER_PORT"] != "": 
+  if result.headers["SERVER_PORT"] != "":
     result.port = result.headers["SERVER_PORT"].parseInt
   else:
     result.port = 80
@@ -183,9 +189,9 @@ proc sendStaticIfExists(client: AsyncSocket, jes: Jester,
       await client.statusContent($Http200, file,
                            {"Content-type": mimetype}.newStringTable)
       return
-  
+
   # If we get to here then no match could be found.
-  await client.statusContent($Http404, error($Http404, jesterVer), 
+  await client.statusContent($Http404, error($Http404, jesterVer),
                        {"Content-type": "text/html"}.newStringTable)
 
 proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
@@ -195,6 +201,16 @@ proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
     output = HttpGet
   of "post":
     output = HttpPost
+  of "put":
+    output = HttpPut
+  of "delete":
+    output = HttpDelete
+  of "head":
+    output = HttpHead
+  of "options":
+    output = HttpOptions
+  of "trace":
+    output = HttpTrace
   else:
     result = false
 
@@ -216,7 +232,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     return
 
   var matched = false
-  
+
   var req: Request
   try:
     req = createReq(jes, path, body, ip, parsedReqMethod, headers, params)
@@ -293,7 +309,7 @@ proc serve*(
   echo("Jester is making jokes at http://localhost" & jes.settings.appName &
        ":" & $jes.settings.port)
 
-template resp*(code: HttpCode, 
+template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
   ## Sets ``(code, headers, content)`` as the response.
@@ -301,7 +317,7 @@ template resp*(code: HttpCode,
   response.data = (TCActionSend, code, headers.newStringTable, content)
 
 template resp*(content: string, contentType = "text/html"): stmt =
-  ## Sets ``content`` as the response; ``Http200`` as the status code 
+  ## Sets ``content`` as the response; ``Http200`` as the status code
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable, strtabs.`[]=`
   response.data[0] = TCActionSend
@@ -311,7 +327,7 @@ template resp*(content: string, contentType = "text/html"): stmt =
 
 template resp*(code: HttpCode, content: string,
                contentType = "text/html"): stmt =
-  ## Sets ``content`` as the response; ``code`` as the status code 
+  ## Sets ``content`` as the response; ``code`` as the status code
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable
   response.data[0] = TCActionSend
@@ -412,9 +428,9 @@ proc setStaticDir*(request: Request, dir: string) =
   ## ``./public`` by default.
   ##
   ## The files will be served like so:
-  ## 
+  ##
   ## ./public/css/style.css ``->`` http://example.com/css/style.css
-  ## 
+  ##
   ## (``./public`` is not included in the final URL)
   request.settings.staticDir = dir
 
@@ -428,8 +444,8 @@ proc makeUri*(request: jester.Request, address = "", absolute = true,
               addScriptName = true): string =
   ## Creates a URI based on the current request. If ``absolute`` is true it will
   ## add the scheme (Usually 'http://'), `request.host` and `request.port`.
-  ## If ``addScriptName`` is true `request.appName` will be prepended before 
-  ## ``address``. 
+  ## If ``addScriptName`` is true `request.appName` will be prepended before
+  ## ``address``.
 
   # Check if address already starts with scheme://
   var url = Url("")
@@ -577,7 +593,7 @@ proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compilet
     for i in 0 .. <node.len:
       result[i] = transformRouteBody(node[i], thisRouteSym)
 
-proc createJesterPattern(body, 
+proc createJesterPattern(body,
      patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
   var ctPattern = ctParsePattern(body[i][1].strVal)
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
@@ -624,7 +640,7 @@ proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
   of MRegex:
     dest.add reMatches
     dest.add createRegexPattern(body, reMatchesSym, patternMatchSym, i)
-  
+
   var ifStmtBody = newStmtList()
   case patternType
   of MSpecial:
@@ -636,7 +652,7 @@ proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
     ifStmtBody.add newAssignment(
         newDotExpr(newIdentNode"request", newIdentNode"matches"),
         reMatchesSym)
-  
+
   ifStmtBody.add body[i][2].skipDo().transformRouteBody(thisRouteSym)
   var checkActionIf = parseExpr("if checkAction(response): return true")
   checkActionIf[0][0][0] = bindSym"checkAction"
@@ -673,18 +689,33 @@ macro routes*(body: stmt): stmt {.immediate.} =
 
   var caseStmtGetBody = newNimNode(nnkStmtList)
   var caseStmtPostBody = newNimNode(nnkStmtList)
+  var caseStmtPutBody = newNimNode(nnkStmtList)
+  var caseStmtDeleteBody = newNimNode(nnkStmtList)
+  var caseStmtHeadBody = newNimNode(nnkStmtList)
+  var caseStmtOptionsBody = newNimNode(nnkStmtList)
+  var caseStmtTraceBody = newNimNode(nnkStmtList)
 
   for i in 0 .. <body.len:
     case body[i].kind
     of nnkCommand:
       let cmdName = body[i][0].ident.`$`.normalize
       case cmdName
-      of "get", "post":
+      of "get", "post", "put", "delete", "head", "options", "trace":
         case cmdName
         of "get":
           createRoute(body, caseStmtGetBody, i)
         of "post":
           createRoute(body, caseStmtPostBody, i)
+        of "put":
+          createRoute(body, caseStmtPutBody, i)
+        of "delete":
+          createRoute(body, caseStmtDeleteBody, i)
+        of "head":
+          createRoute(body, caseStmtHeadBody, i)
+        of "options":
+          createRoute(body, caseStmtOptionsBody, i)
+        of "trace":
+          createRoute(body, caseStmtTraceBody, i)
         else:
           discard
       else:
@@ -704,9 +735,34 @@ macro routes*(body: stmt): stmt {.immediate.} =
   ofBranchPost.add caseStmtPostBody
   caseStmt.add ofBranchPost
 
+  var ofBranchPut = newNimNode(nnkOfBranch)
+  ofBranchPut.add newIdentNode("HttpPut")
+  ofBranchPut.add caseStmtPutBody
+  caseStmt.add ofBranchPut
+
+  var ofBranchDelete = newNimNode(nnkOfBranch)
+  ofBranchDelete.add newIdentNode("HttpDelete")
+  ofBranchDelete.add caseStmtDeleteBody
+  caseStmt.add ofBranchDelete
+
+  var ofBranchHead = newNimNode(nnkOfBranch)
+  ofBranchHead.add newIdentNode("HttpHead")
+  ofBranchHead.add caseStmtHeadBody
+  caseStmt.add ofBranchHead
+
+  var ofBranchOptions = newNimNode(nnkOfBranch)
+  ofBranchOptions.add newIdentNode("HttpOptions")
+  ofBranchOptions.add caseStmtOptionsBody
+  caseStmt.add ofBranchOptions
+
+  var ofBranchTrace = newNimNode(nnkOfBranch)
+  ofBranchTrace.add newIdentNode("HttpTrace")
+  ofBranchTrace.add caseStmtTraceBody
+  caseStmt.add ofBranchTrace
+
   matchBody.add caseStmt
 
-  var matchProc = parseStmt("proc match(request: Request," & 
+  var matchProc = parseStmt("proc match(request: Request," &
     "response: Response): Future[bool] {.async.} = discard")
   matchProc[0][6] = matchBody
   result.add(outsideStmts)
@@ -716,4 +772,4 @@ macro routes*(body: stmt): stmt {.immediate.} =
   #echo toStrLit(result)
   #echo treeRepr(result)
 
-  
+
