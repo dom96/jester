@@ -772,4 +772,16 @@ macro routes*(body: stmt): stmt {.immediate.} =
   #echo toStrLit(result)
   #echo treeRepr(result)
 
+macro settings*(body: stmt): stmt {.immediate.} =
+  #echo(treeRepr(body))
+  expectKind(body, nnkStmtList)
 
+  result = newStmtList()
+
+  # var settings = newSettings()
+  let settingsIdent = newIdentNode("settings")
+  result.add newVarStmt(settingsIdent, newCall("newSettings"))
+
+  for asgn in body.children:
+    expectKind(asgn, nnkAsgn)
+    result.add newAssignment(newDotExpr(settingsIdent, asgn[0]), asgn[1])

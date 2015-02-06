@@ -1,5 +1,8 @@
 import jester, asyncdispatch, strutils, math, os, asyncnet, re
 
+settings:
+  port = Port(5454)
+
 routes:
   get "/":
     resp "Hello World"
