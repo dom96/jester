@@ -72,12 +72,12 @@ proc parseMultiPart*(body: string, boundary: string): MultiData =
     
     # Parse body.
     while true:
-      if body[i] == '\c' and body[i+1] == '\L':
-        if body.skip(mboundary, i+2) != 0:
-          if body.skip("--", i+2+mboundary.len) != 0:
-            partsLeft = false
-            break
+      if body[i] == '\c' and body[i+1] == '\L' and
+         body.skip(mboundary, i+2) != 0:
+        if body.skip("--", i+2+mboundary.len) != 0:
+          partsLeft = false
           break
+        break
       else:
         newPart[1].add(body[i])
       inc(i)
