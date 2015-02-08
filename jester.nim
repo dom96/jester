@@ -306,8 +306,8 @@ proc serve*(
   asyncCheck jes.httpServer.serve(jes.settings.port,
     proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
       handleHTTPRequest(jes, req))
-  echo("Jester is making jokes at http://localhost" & jes.settings.appName &
-       ":" & $jes.settings.port)
+  echo("Jester is making jokes at http://localhost" &
+       ":" & $jes.settings.port & jes.settings.appName)
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
@@ -565,7 +565,7 @@ template setDefaultResp(): stmt =
   response.data.content = ""
 
 template declareSettings(): stmt {.immediate, dirty.} =
-  when not declared(settings):
+  when not declaredInScope(settings):
     var settings = newSettings()
 
 proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compiletime.} =
