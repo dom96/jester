@@ -598,13 +598,13 @@ proc createJesterPattern(body,
   var ctPattern = ctParsePattern(body[i][1].strVal)
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
-      newCall(bindSym"match", ctPattern, parseExpr("request.path")))
+      newCall(bindSym"match", ctPattern, parseExpr("request.pathInfo")))
 
 proc createRegexPattern(body, reMatchesSym,
      patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
-      newCall(bindSym"find", parseExpr("request.path"), body[i][1],
+      newCall(bindSym"find", parseExpr("request.pathInfo"), body[i][1],
               reMatchesSym))
 
 proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =

@@ -2,7 +2,7 @@ import jester, asyncdispatch, strutils, math, os, asyncnet, re
 
 settings:
   port = Port(5454)
-  appName = "foo"
+  appName = "/foo"
 
 routes:
   get "/":
