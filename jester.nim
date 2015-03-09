@@ -52,7 +52,7 @@ type
     path*: string                 ## Path of request.
     cookies*: StringTableRef      ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
-    reqMeth*: ReqMeth             ## Request method: HttpGet or HttpPost
+    reqMeth*: ReqMeth             ## Request method, eg. HttpGet, HttpPost
     settings*: Settings
 
   Response* = ref object
