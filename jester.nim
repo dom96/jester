@@ -185,7 +185,7 @@ proc sendStaticIfExists(client: AsyncSocket, jes: Jester,
     if existsFile(p):
       var file = readFile(p)
       # TODO: Check file permissions
-      let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. -1])
+      let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. ^1])
       await client.statusContent($Http200, file,
                            {"Content-type": mimetype}.newStringTable)
       return
@@ -488,8 +488,8 @@ template setCookie*(name, value: string, expires: TimeInfo): stmt =
     response.data[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
 
 proc normalizeUri*(uri: string): string =
-  ## Remove any leading ``/``.
-  if uri[uri.len-1] == '/': result = uri[0 .. -2]
+  ## Remove any trailing ``/``.
+  if uri[^1] == '/': result = uri[0 .. ^2]
   else: result = uri
 
 # -- Macro
