@@ -52,7 +52,7 @@ type
     path*: string                 ## Path of request.
     cookies*: StringTableRef      ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
-    reqMeth*: ReqMeth             ## Request method: HttpGet or HttpPost
+    reqMeth*: ReqMeth             ## Request method, eg. HttpGet, HttpPost
     settings*: Settings
 
   Response* = ref object
@@ -306,8 +306,8 @@ proc serve*(
   asyncCheck jes.httpServer.serve(jes.settings.port,
     proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
       handleHTTPRequest(jes, req))
-  echo("Jester is making jokes at http://localhost" & jes.settings.appName &
-       ":" & $jes.settings.port)
+  echo("Jester is making jokes at http://localhost" &
+       ":" & $jes.settings.port & jes.settings.appName)
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
@@ -565,7 +565,7 @@ template setDefaultResp(): stmt =
   response.data.content = ""
 
 template declareSettings(): stmt {.immediate, dirty.} =
-  when not declared(settings):
+  when not declaredInScope(settings):
     var settings = newSettings()
 
 proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compiletime.} =
@@ -598,13 +598,13 @@ proc createJesterPattern(body,
   var ctPattern = ctParsePattern(body[i][1].strVal)
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
-      newCall(bindSym"match", ctPattern, parseExpr("request.path")))
+      newCall(bindSym"match", ctPattern, parseExpr("request.pathInfo")))
 
 proc createRegexPattern(body, reMatchesSym,
      patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
-      newCall(bindSym"find", parseExpr("request.path"), body[i][1],
+      newCall(bindSym"find", parseExpr("request.pathInfo"), body[i][1],
               reMatchesSym))
 
 proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =

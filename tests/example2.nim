@@ -2,7 +2,7 @@ import jester, asyncdispatch, asyncnet
 
 proc match(request: PRequest, response: PResponse): Future[bool] {.async.} =
   result = true
-  case request.path
+  case request.pathInfo
   of "/":
     await response.sendHeaders()
     await response.send("Hello World!")

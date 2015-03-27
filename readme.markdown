@@ -168,7 +168,7 @@ PRequest* = ref object
   path*: string                 ## Path of request.
   cookies*: StringTableRef      ## Cookies from the browser.
   ip*: string                   ## IP address of the requesting client.
-  reqMeth*: TReqMeth            ## Request method: HttpGet or HttpPost 
+  reqMeth*: TReqMeth            ## Request method, eg. HttpGet, HttpPost
   settings*: PSettings
 ```
 
