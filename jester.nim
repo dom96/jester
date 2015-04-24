@@ -1,7 +1,7 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros
+        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5
 
 import private/patterns,
        private/errorpages,
@@ -179,15 +179,25 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
   result.settings = jes.settings
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
-proc sendStaticIfExists(client: AsyncSocket, jes: Jester,
+proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
                         paths: seq[string]) {.async.} =
   for p in paths:
     if existsFile(p):
-      var file = readFile(p)
+
       # TODO: Check file permissions
-      let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. p.splitFile.ext.len-1])
-      await client.statusContent($Http200, file,
-                           {"Content-type": mimetype}.newStringTable)
+      var file = readFile(p)
+
+      var hashed = getMD5(file)
+
+      # If the user has a cached version of this file and it matches our
+      # version, let them use it
+      if req.headers.hasKey("If-None-Match") and req.headers["If-None-Match"] == hashed:
+        await client.statusContent($Http304, "", newStringTable())
+      else:
+        let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. p.splitFile.ext.len-1])
+        await client.statusContent($Http200, file, {
+                                   "Content-type": mimetype,
+                                   "ETag": hashed }.newStringTable)
       return
 
   # If we get to here then no match could be found.
@@ -274,10 +284,11 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     # TODO: Caching.
     let publicRequested = jes.settings.staticDir / req.pathInfo
     if existsDir(publicRequested):
-      await client.sendStaticIfExists(jes, @[publicRequested / "index.html",
-                                        publicRequested / "index.htm"])
+      await client.sendStaticIfExists(req, jes,
+                                      @[publicRequested / "index.html",
+                                      publicRequested / "index.htm"])
     else:
-      await client.sendStaticIfExists(jes, @[publicRequested])
+      await client.sendStaticIfExists(req, jes, @[publicRequested])
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
