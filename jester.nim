@@ -459,25 +459,21 @@ proc makeUri*(request: jester.Request, address = "", absolute = true,
   ## ``address``.
 
   # Check if address already starts with scheme://
-  var url = Url("")
-  if address.find("://") != -1: return address
+  var uri = parseUri(address)
+  if uri.scheme != "": return address
+  uri.path = "/"
   if absolute:
-    url.add(Url("http$1://" % [if request.secure: "s" else: ""]))
+    uri.hostname = request.host
+    uri.scheme = (if request.secure: "https" else: "http")
     if request.port != (if request.secure: 443 else: 80):
-      url.add(Url(request.host & ":" & $request.port))
-    else:
-      url.add(Url(request.host))
+      uri.port = $request.port
+
+  if addScriptName: uri = uri / request.appName
+  if address != "":
+    uri = uri / address
   else:
-    url.add(Url("/"))
-
-  if addScriptName: url.add(Url(request.appName))
-  url.add(if address != "": address.Url else: request.pathInfo.Url)
-  return string(url)
-
-proc makeUri*(request: jester.Request, address: Url = Url(""),
-              absolute = true, addScriptName = true): string =
-  ## Overload for Url.
-  return request.makeUri($address, absolute, addScriptName)
+    uri = uri / request.pathInfo
+  return $uri
 
 template uri*(address = "", absolute = true, addScriptName = true): expr =
   ## Convenience template which can be used in a route.
