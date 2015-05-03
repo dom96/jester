@@ -532,19 +532,19 @@ proc checkAction(response: Response): bool =
   of TCActionNothing:
     assert(false)
 
-proc skipDo(node: PNimrodNode): PNimrodNode {.compiletime.} =
+proc skipDo(node: NimNode): NimNode {.compiletime.} =
   if node.kind == nnkDo:
     result = node[6]
   else:
     result = node
 
-proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
+proc ctParsePattern(pattern: string): NimNode {.compiletime.} =
   result = newNimNode(nnkPrefix)
   result.add newIdentNode("@")
   result.add newNimNode(nnkBracket)
 
-  proc addPattNode(res: var PNimrodNode, typ, text,
-                   optional: PNimrodNode) {.compiletime.} =
+  proc addPattNode(res: var NimNode, typ, text,
+                   optional: NimNode) {.compiletime.} =
     var objConstr = newNimNode(nnkObjConstr)
 
     objConstr.add bindSym("Node")
@@ -579,7 +579,7 @@ template declareSettings(): stmt {.immediate, dirty.} =
   when not declaredInScope(settings):
     var settings = newSettings()
 
-proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compiletime.} =
+proc transformRouteBody(node, thisRouteSym: NimNode): NimNode {.compiletime.} =
   result = node
   case node.kind
   of nnkCall, nnkCommand:
@@ -605,20 +605,20 @@ proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compilet
       result[i] = transformRouteBody(node[i], thisRouteSym)
 
 proc createJesterPattern(body,
-     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
   var ctPattern = ctParsePattern(body[i][1].strVal)
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
       newCall(bindSym"match", ctPattern, parseExpr("request.pathInfo")))
 
 proc createRegexPattern(body, reMatchesSym,
-     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
       newCall(bindSym"find", parseExpr("request.pathInfo"), body[i][1],
               reMatchesSym))
 
-proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
+proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   case pattern.kind
   of nnkStrLit:
     return MSpecial
@@ -631,7 +631,7 @@ proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
   else:
     error("Unexpected node kind: " & $pattern.kind)
 
-proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
+proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
 
