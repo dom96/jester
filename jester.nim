@@ -1,7 +1,8 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5
+       scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
+       logging
 
 import private/patterns,
        private/errorpages,
@@ -91,7 +92,7 @@ proc sendHeaders(c: AsyncSocket, status: string,
     await c.send(data)
     result = true
   except:
-    echo("Could not send response: ", getCurrentExceptionMsg())
+    logging.error("Could not send response: $1", getCurrentExceptionMsg())
 
 proc statusContent(c: AsyncSocket, status, content: string,
                    headers: StringTableRef) {.async.} =
@@ -106,9 +107,9 @@ proc statusContent(c: AsyncSocket, status, content: string,
       sent = false
 
   if sent:
-    echo("  ", status, " ", headers)
+    logging.debug("$1 $2", status, headers)
   else:
-    echo("Could not send response: ", osErrorMsg(osLastError()))
+    logging.error("Could not send response: $1", osErrorMsg(osLastError()))
 
 proc sendHeaders*(response: Response, status: HttpCode,
                   headers: StringTableRef) {.async.} =
@@ -160,7 +161,8 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
   if result.headers["Content-Type"].startswith("application/x-www-form-urlencoded"):
     try:
       parseUrlQuery(body, result.params)
-    except: echo("[Warning] Could not parse URL query.")
+    except:
+      logging.warn("Could not parse URL query.")
   elif result.headers["Content-Type"].startsWith("multipart/form-data"):
     result.formData = parseMPFD(result.headers["Content-Type"], body)
   if result.headers["SERVER_PORT"] != "":
@@ -233,7 +235,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     for key, val in cgi.decodeData(query):
       params[key] = val
   except CgiError:
-    echo("[Warning] Incorrect query. Got: ", query)
+    logging.warn("Incorrect query. Got: $1", query)
 
   var parsedReqMethod = HttpGet
   if not parseReqMethod(reqMethod, parsedReqMethod):
@@ -252,7 +254,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
 
   var resp = Response(client: client)
 
-  echo(reqMethod, " ", req.pathInfo)
+  logging.info("$1 $2", reqMethod, req.pathInfo)
 
   var failed = false # Workaround for no 'await' in 'except' body
   var matchProcFut: Future[bool]
@@ -278,7 +280,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
       await client.statusContent($resp.data.code, resp.data.content,
                                   resp.data.headers)
     else:
-      echo("  ", resp.data.action)
+      logging.debug("$1", resp.data.action)
   else:
     # Find static file.
     # TODO: Caching.
@@ -317,8 +319,14 @@ proc serve*(
   asyncCheck jes.httpServer.serve(jes.settings.port,
     proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
       handleHTTPRequest(jes, req))
-  echo("Jester is making jokes at http://localhost" &
-       ":" & $jes.settings.port & jes.settings.appName)
+
+  # Ensure we have at least one logger enabled, defaulting to console.
+  if logging.getHandlers().len == 0:
+    addHandler(logging.newConsoleLogger())
+    setLogFilter(when defined(release): lvlWarn else: lvlInfo)
+
+  logging.info("Jester is making jokes at http://localhost:$1$2",
+               jes.settings.port, jes.settings.appName)
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
@@ -627,9 +635,9 @@ proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
     case ($pattern[0].ident).normalize
     of "re": return MRegex
     else:
-      error("Invalid pattern type: " & $pattern[0].ident)
+      macros.error("Invalid pattern type: " & $pattern[0].ident)
   else:
-    error("Unexpected node kind: " & $pattern.kind)
+    macros.error("Unexpected node kind: " & $pattern.kind)
 
 proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
   ## Creates code which checks whether the current request path
