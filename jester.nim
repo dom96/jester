@@ -26,6 +26,7 @@ type
     appName*: string
     mimes*: MimeDb
     port*: Port
+    bindAddr*: string
 
   MatchType* = enum
     MRegex, MSpecial
@@ -297,10 +298,11 @@ proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request) {.async.} =
                       req.body, req.hostname, req.reqMethod, req.headers)
 
 proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
-                  appName = ""): Settings =
+                  appName = "", bindAddr = ""): Settings =
   result = Settings(staticDir: staticDir,
                      appName: appName,
-                     port: port)
+                     port: port,
+                     bindAddr: bindAddr)
 
 proc serve*(
     match:
@@ -316,9 +318,14 @@ proc serve*(
 
   asyncCheck jes.httpServer.serve(jes.settings.port,
     proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
-      handleHTTPRequest(jes, req))
-  echo("Jester is making jokes at http://localhost" &
-       ":" & $jes.settings.port & jes.settings.appName)
+      handleHTTPRequest(jes, req), settings.bindAddr)
+  if settings.bindAddr.len > 0:
+    echo("Jester is making jokes at http://" & settings.bindAddr &
+         ":" & $jes.settings.port & jes.settings.appName)
+  else:
+    echo("Jester is making jokes at http://localhost" &
+         ":" & $jes.settings.port & jes.settings.appName)
+
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
