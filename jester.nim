@@ -466,25 +466,21 @@ proc makeUri*(request: jester.Request, address = "", absolute = true,
   ## ``address``.
 
   # Check if address already starts with scheme://
-  var url = Url("")
-  if address.find("://") != -1: return address
+  var uri = parseUri(address)
+  if uri.scheme != "": return address
+  uri.path = "/"
   if absolute:
-    url.add(Url("http$1://" % [if request.secure: "s" else: ""]))
+    uri.hostname = request.host
+    uri.scheme = (if request.secure: "https" else: "http")
     if request.port != (if request.secure: 443 else: 80):
-      url.add(Url(request.host & ":" & $request.port))
-    else:
-      url.add(Url(request.host))
+      uri.port = $request.port
+
+  if addScriptName: uri = uri / request.appName
+  if address != "":
+    uri = uri / address
   else:
-    url.add(Url("/"))
-
-  if addScriptName: url.add(Url(request.appName))
-  url.add(if address != "": address.Url else: request.pathInfo.Url)
-  return string(url)
-
-proc makeUri*(request: jester.Request, address: Url = Url(""),
-              absolute = true, addScriptName = true): string =
-  ## Overload for Url.
-  return request.makeUri($address, absolute, addScriptName)
+    uri = uri / request.pathInfo
+  return $uri
 
 template uri*(address = "", absolute = true, addScriptName = true): expr =
   ## Convenience template which can be used in a route.
@@ -539,19 +535,19 @@ proc checkAction(response: Response): bool =
   of TCActionNothing:
     assert(false)
 
-proc skipDo(node: PNimrodNode): PNimrodNode {.compiletime.} =
+proc skipDo(node: NimNode): NimNode {.compiletime.} =
   if node.kind == nnkDo:
     result = node[6]
   else:
     result = node
 
-proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
+proc ctParsePattern(pattern: string): NimNode {.compiletime.} =
   result = newNimNode(nnkPrefix)
   result.add newIdentNode("@")
   result.add newNimNode(nnkBracket)
 
-  proc addPattNode(res: var PNimrodNode, typ, text,
-                   optional: PNimrodNode) {.compiletime.} =
+  proc addPattNode(res: var NimNode, typ, text,
+                   optional: NimNode) {.compiletime.} =
     var objConstr = newNimNode(nnkObjConstr)
 
     objConstr.add bindSym("Node")
@@ -586,7 +582,7 @@ template declareSettings(): stmt {.immediate, dirty.} =
   when not declaredInScope(settings):
     var settings = newSettings()
 
-proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compiletime.} =
+proc transformRouteBody(node, thisRouteSym: NimNode): NimNode {.compiletime.} =
   result = node
   case node.kind
   of nnkCall, nnkCommand:
@@ -612,20 +608,20 @@ proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compilet
       result[i] = transformRouteBody(node[i], thisRouteSym)
 
 proc createJesterPattern(body,
-     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
   var ctPattern = ctParsePattern(body[i][1].strVal)
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
       newCall(bindSym"match", ctPattern, parseExpr("request.pathInfo")))
 
 proc createRegexPattern(body, reMatchesSym,
-     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
       newCall(bindSym"find", parseExpr("request.pathInfo"), body[i][1],
               reMatchesSym))
 
-proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
+proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   case pattern.kind
   of nnkStrLit:
     return MSpecial
@@ -638,7 +634,7 @@ proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
   else:
     error("Unexpected node kind: " & $pattern.kind)
 
-proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
+proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
 
