@@ -1,3 +1,5 @@
+# Copyright (C) 2015 Dominik Picheta
+# MIT License - Look at license.txt for details.
 import jester, asyncdispatch, strutils, math, os, asyncnet, re
 
 settings:

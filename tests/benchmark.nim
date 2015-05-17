@@ -1,3 +1,6 @@
+# Copyright (C) 2015 Dominik Picheta
+# MIT License - Look at license.txt for details.
+
 ## Benchmark.nim - This file is meant to be compared to Golang's stdlib
 ## HTTP server. The headers it sends match here.
 

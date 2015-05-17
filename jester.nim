@@ -1,4 +1,4 @@
-# Copyright (C) 2012 Dominik Picheta
+# Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
         scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5
