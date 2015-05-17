@@ -81,34 +81,22 @@ type
 
 const jesterVer = "0.1.0"
 
-proc sendHeaders(c: AsyncSocket, status: string,
-                 headers: StringTableRef): Future[bool] {.async.} =
-  try:
-    var strHeaders = ""
-    if headers != nil:
-      for key, value in headers:
-        strHeaders.add(key & ": " & value & "\c\L")
-    let data = "HTTP/1.1 " & status & "\c\L" & strHeaders & "\c\L"
-    await c.send(data)
-    result = true
-  except:
-    echo("Could not send response: ", getCurrentExceptionMsg())
+proc createHeaders(status: string, headers: StringTableRef): string =
+  result = ""
+  if headers != nil:
+    for key, value in headers:
+      result.add(key & ": " & value & "\c\L")
+  result = "HTTP/1.1 " & status & "\c\L" & result & "\c\L"
 
 proc statusContent(c: AsyncSocket, status, content: string,
                    headers: StringTableRef) {.async.} =
   var newHeaders = headers
   newHeaders["Content-Length"] = $content.len
-  var sent = await c.sendHeaders(status, newHeaders)
-  if sent:
-    try:
-      await c.send(content)
-      sent = true
-    except:
-      sent = false
-
-  if sent:
+  let headerData = createHeaders(status, headers)
+  try:
+    await c.send(headerData & content)
     echo("  ", status, " ", headers)
-  else:
+  except:
     echo("Could not send response: ", osErrorMsg(osLastError()))
 
 proc sendHeaders*(response: Response, status: HttpCode,
@@ -117,7 +105,12 @@ proc sendHeaders*(response: Response, status: HttpCode,
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
   response.data.action = TCActionRaw
-  discard await sendHeaders(response.client, $status, headers)
+  let headerData = createHeaders($status, headers)
+  try:
+    await response.client.send(headerData)
+    echo("  ", status, " ", headers)
+  except:
+    echo("Could not send response: ", osErrorMsg(osLastError()))
 
 proc sendHeaders*(response: Response, status: HttpCode): Future[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
@@ -133,6 +126,13 @@ proc send*(response: Response, content: string) {.async.} =
   ## Sends ``content`` immediately to the client socket.
   response.data.action = TCActionRaw
   await response.client.send(content)
+
+proc send*(response: Response, status: HttpCode, headers: StringTableRef,
+           content: string): Future[void] =
+  ## Sends out a HTTP response comprising of the ``status``, ``headers`` and
+  ## ``content`` specified. This is done immediately for greatest performance.
+  response.data.action = TCActionRaw
+  result = response.client.statusContent($status, content, headers)
 
 proc stripAppName(path, appName: string): string =
   result = path
@@ -293,8 +293,8 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
-proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request) {.async.} =
-  await handleRequest(jes, req.client, req.url.path, req.url.query,
+proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request): Future[void] =
+  result = handleRequest(jes, req.client, req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
 proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
