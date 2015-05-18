@@ -255,7 +255,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
 
   var resp = Response(client: client)
 
-  logging.info("  $1 $2", reqMethod, req.pathInfo)
+  logging.debug("$1 $2", reqMethod, req.pathInfo)
 
   var failed = false # Workaround for no 'await' in 'except' body
   var matchProcFut: Future[bool]
@@ -321,7 +321,7 @@ proc serve*(
   # Ensure we have at least one logger enabled, defaulting to console.
   if logging.getHandlers().len == 0:
     addHandler(logging.newConsoleLogger())
-    setLogFilter(when defined(release): lvlWarn else: lvlInfo)
+    setLogFilter(when defined(release): lvlInfo else: lvlDebug)
 
   asyncCheck jes.httpServer.serve(jes.settings.port,
     proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
