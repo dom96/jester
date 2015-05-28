@@ -473,8 +473,11 @@ proc makeUri*(request: jester.Request, address = "", absolute = true,
 
   # Check if address already starts with scheme://
   var uri = parseUri(address)
+
   if uri.scheme != "": return address
   uri.path = "/"
+  uri.query = ""
+  uri.anchor = ""
   if absolute:
     uri.hostname = request.host
     uri.scheme = (if request.secure: "https" else: "http")
