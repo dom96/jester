@@ -327,11 +327,11 @@ proc serve*(
     proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
       handleHTTPRequest(jes, req), settings.bindAddr)
   if settings.bindAddr.len > 0:
-    logging.info("Jester is making jokes at http://$1:$2$3", settings.bindAddr,
-               jes.settings.port, jes.settings.appName)
+    logging.info("Jester is making jokes at http://$1:$2$3" %
+                 [settings.bindAddr, $jes.settings.port, jes.settings.appName])
   else:
-    logging.info("Jester is making jokes at http://localhost:$1$2",
-               jes.settings.port, jes.settings.appName)
+    logging.info("Jester is making jokes at http://localhost:$1$2" %
+                 [$jes.settings.port, jes.settings.appName])
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
