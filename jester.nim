@@ -116,7 +116,7 @@ proc sendHeaders*(response: Response, status: HttpCode,
 proc sendHeaders*(response: Response, status: HttpCode): Future[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
-  response.sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
+  response.sendHeaders(status, {"Content-Type": "text/html;charset=utf-8"}.newStringTable())
 
 proc sendHeaders*(response: Response): Future[void] =
   ## Sends ``Http200`` and ``Content-Type: text/html`` as the headers to the
@@ -205,7 +205,7 @@ proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
 
   # If we get to here then no match could be found.
   await client.statusContent($Http404, error($Http404, jesterVer),
-                       {"Content-type": "text/html"}.newStringTable)
+                       {"Content-type": "text/html;charset=utf-8"}.newStringTable)
 
 proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
   result = true
@@ -241,7 +241,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   var parsedReqMethod = HttpGet
   if not parseReqMethod(reqMethod, parsedReqMethod):
     await client.statusContent($Http400, error($Http400, jesterVer),
-                           {"Content-type": "text/html"}.newStringTable)
+                           {"Content-type": "text/html;charset=utf-8"}.newStringTable)
     return
 
   var matched = false
@@ -272,7 +272,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     let error = traceback & matchProcFut.error.msg
     await client.statusContent($Http502,
         routeException(error, jesterVer),
-        {"Content-Type": "text/html"}.newStringTable)
+        {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
 
     return
 
@@ -340,7 +340,7 @@ template resp*(code: HttpCode,
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
 
-template resp*(content: string, contentType = "text/html"): stmt =
+template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable, strtabs.`[]=`
@@ -350,7 +350,7 @@ template resp*(content: string, contentType = "text/html"): stmt =
   response.data[3] = content
 
 template resp*(code: HttpCode, content: string,
-               contentType = "text/html"): stmt =
+               contentType = "text/html;charset=utf-8"): stmt =
   ## Sets ``content`` as the response; ``code`` as the status code
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable
@@ -419,16 +419,16 @@ template halt*(code: HttpCode,
 template halt*(): stmt =
   ## Halts the execution of this request immediately. Returns a 404.
   ## All previously set values are **discarded**.
-  halt(Http404, {"Content-Type": "text/html"}, error($Http404, jesterVer))
+  halt(Http404, {"Content-Type": "text/html;charset=utf-8"}, error($Http404, jesterVer))
 
 template halt*(code: HttpCode): stmt =
-  halt(code, {"Content-Type": "text/html"}, error($code, jesterVer))
+  halt(code, {"Content-Type": "text/html;charset=utf-8"}, error($code, jesterVer))
 
 template halt*(content: string): stmt =
-  halt(Http404, {"Content-Type": "text/html"}, content)
+  halt(Http404, {"Content-Type": "text/html;charset=utf-8"}, content)
 
 template halt*(code: HttpCode, content: string): stmt =
-  halt(code, {"Content-Type": "text/html"}, content)
+  halt(code, {"Content-Type": "text/html;charset=utf-8"}, content)
 
 template attachment*(filename = ""): stmt =
   ## Creates an attachment out of ``filename``. Once the route exits,
@@ -527,11 +527,11 @@ proc guessAction(resp: Response) =
       resp.data.action = TCActionSend
       resp.data.code = Http200
       if not resp.data.headers.hasKey("Content-Type"):
-        resp.data.headers["Content-Type"] = "text/html"
+        resp.data.headers["Content-Type"] = "text/html;charset=utf-8"
     else:
       resp.data.action = TCActionSend
       resp.data.code = Http502
-      resp.data.headers = {"Content-Type": "text/html"}.newStringTable
+      resp.data.headers = {"Content-Type": "text/html;charset=utf-8"}.newStringTable
       resp.data.content = error($Http502, jesterVer)
 
 proc checkAction(response: Response): bool =
