@@ -40,7 +40,7 @@ template parseContentDisposition(): stmt =
 proc parseMultiPart*(body: string, boundary: string): MultiData =
   result = initTable[string, tuple[fields: StringTableRef, body: string]]()
   var mboundary = "--" & boundary
-  
+
   var i = 0
   var partsLeft = true
   while partsLeft:
@@ -49,7 +49,7 @@ proc parseMultiPart*(body: string, boundary: string): MultiData =
       raise newException(ValueError, "Expected boundary. Got: " & body.substr(i, i+25))
     i += firstBoundary
     i += body.skipWhitespace(i)
-    
+
     # Headers
     var newPart: tuple[fields: StringTableRef, body: string] = ({:}.newStringTable, "")
     var name = ""
@@ -69,7 +69,7 @@ proc parseMultiPart*(body: string, boundary: string): MultiData =
         parseContentDisposition()
       newPart[0][hName] = hValue
       i += body.skip("\c\L", i) # Skip *one* \c\L
-    
+
     # Parse body.
     while true:
       if body[i] == '\c' and body[i+1] == '\L' and
@@ -82,16 +82,19 @@ proc parseMultiPart*(body: string, boundary: string): MultiData =
         newPart[1].add(body[i])
       inc(i)
     i += body.skipWhitespace(i)
-    
+
     result[name] = newPart
-    
+
 proc parseMPFD*(contentType: string, body: string): MultiData =
   var boundaryEqIndex = contentType.find("boundary=")+9
   var boundary = contentType.substr(boundaryEqIndex, contentType.len()-1)
   return parseMultiPart(body, boundary)
 
+when not declared(tables.getOrDefault):
+  template getOrDefault*(tab, key): untyped = tab[key]
+
 when isMainModule:
   var r = {:}.newStringTable
   parseUrlQuery("FirstName=Mickey", r)
   echo r
-  
+

@@ -10,10 +10,10 @@ routes:
     html.add "<form action=\"upload\" method=\"post\"enctype=\"multipart/form-data\">"
     html.add "<input type=\"file\" name=\"file\"value=\"file\">"
     html.add "<input type=\"submit\" value=\"Submit\" name=\"submit\">"
-    html.add "</form>" 
+    html.add "</form>"
     resp(html)
 
   post "/upload":
-    writeFile("uploaded.png", request.formData["file"].body)
-    resp(request.formData["file"].body)
+    writeFile("uploaded.png", request.formData.getOrDefault("file").body)
+    resp(request.formData.getOrDefault("file").body)
 runForever()
