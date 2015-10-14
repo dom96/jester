@@ -1,7 +1,8 @@
-# Copyright (C) 2012 Dominik Picheta
+# Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
-        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros
+       scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
+       logging
 
 import private/patterns,
        private/errorpages,
@@ -26,6 +27,7 @@ type
     appName*: string
     mimes*: MimeDb
     port*: Port
+    bindAddr*: string
 
   MatchType* = enum
     MRegex, MSpecial
@@ -80,35 +82,23 @@ type
 
 const jesterVer = "0.1.0"
 
-proc sendHeaders(c: AsyncSocket, status: string,
-                 headers: StringTableRef): Future[bool] {.async.} =
-  try:
-    var strHeaders = ""
-    if headers != nil:
-      for key, value in headers:
-        strHeaders.add(key & ": " & value & "\c\L")
-    let data = "HTTP/1.1 " & status & "\c\L" & strHeaders & "\c\L"
-    await c.send(data)
-    result = true
-  except:
-    echo("Could not send response: ", getCurrentExceptionMsg())
+proc createHeaders(status: string, headers: StringTableRef): string =
+  result = ""
+  if headers != nil:
+    for key, value in headers:
+      result.add(key & ": " & value & "\c\L")
+  result = "HTTP/1.1 " & status & "\c\L" & result & "\c\L"
 
 proc statusContent(c: AsyncSocket, status, content: string,
                    headers: StringTableRef) {.async.} =
   var newHeaders = headers
   newHeaders["Content-Length"] = $content.len
-  var sent = await c.sendHeaders(status, newHeaders)
-  if sent:
-    try:
-      await c.send(content)
-      sent = true
-    except:
-      sent = false
-
-  if sent:
-    echo("  ", status, " ", headers)
-  else:
-    echo("Could not send response: ", osErrorMsg(osLastError()))
+  let headerData = createHeaders(status, headers)
+  try:
+    await c.send(headerData & content)
+    logging.debug("  $1 $2" % [$status, $headers])
+  except:
+    logging.error("Could not send response: $1" % osErrorMsg(osLastError()))
 
 proc sendHeaders*(response: Response, status: HttpCode,
                   headers: StringTableRef) {.async.} =
@@ -116,12 +106,17 @@ proc sendHeaders*(response: Response, status: HttpCode,
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
   response.data.action = TCActionRaw
-  discard await sendHeaders(response.client, $status, headers)
+  let headerData = createHeaders($status, headers)
+  try:
+    await response.client.send(headerData)
+    logging.debug("  $1 $2" % [$status, $headers])
+  except:
+    logging.error("Could not send response: $1" % [osErrorMsg(osLastError())])
 
 proc sendHeaders*(response: Response, status: HttpCode): Future[void] =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
-  response.sendHeaders(status, {"Content-Type": "text/html"}.newStringTable())
+  response.sendHeaders(status, {"Content-Type": "text/html;charset=utf-8"}.newStringTable())
 
 proc sendHeaders*(response: Response): Future[void] =
   ## Sends ``Http200`` and ``Content-Type: text/html`` as the headers to the
@@ -132,6 +127,13 @@ proc send*(response: Response, content: string) {.async.} =
   ## Sends ``content`` immediately to the client socket.
   response.data.action = TCActionRaw
   await response.client.send(content)
+
+proc send*(response: Response, status: HttpCode, headers: StringTableRef,
+           content: string): Future[void] =
+  ## Sends out a HTTP response comprising of the ``status``, ``headers`` and
+  ## ``content`` specified. This is done immediately for greatest performance.
+  response.data.action = TCActionRaw
+  result = response.client.statusContent($status, content, headers)
 
 proc stripAppName(path, appName: string): string =
   result = path
@@ -160,7 +162,8 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
   if result.headers.getOrDefault("Content-Type").startswith("application/x-www-form-urlencoded"):
     try:
       parseUrlQuery(body, result.params)
-    except: echo("[Warning] Could not parse URL query.")
+    except:
+      logging.warn("Could not parse URL query.")
   elif (let ct = result.headers.getOrDefault("Content-Type"); ct.startsWith("multipart/form-data")):
     result.formData = parseMPFD(ct, body)
   if (let p = result.headers.getOrDefault("SERVER_PORT"); p != ""):
@@ -179,20 +182,30 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
   result.settings = jes.settings
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
-proc sendStaticIfExists(client: AsyncSocket, jes: Jester,
+proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
                         paths: seq[string]) {.async.} =
   for p in paths:
     if existsFile(p):
-      var file = readFile(p)
+
       # TODO: Check file permissions
-      let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. ^1])
-      await client.statusContent($Http200, file,
-                           {"Content-type": mimetype}.newStringTable)
+      var file = readFile(p)
+
+      var hashed = getMD5(file)
+
+      # If the user has a cached version of this file and it matches our
+      # version, let them use it
+      if req.headers.hasKey("If-None-Match") and req.headers["If-None-Match"] == hashed:
+        await client.statusContent($Http304, "", newStringTable())
+      else:
+        let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. p.splitFile.ext.len-1])
+        await client.statusContent($Http200, file, {
+                                   "Content-type": mimetype,
+                                   "ETag": hashed }.newStringTable)
       return
 
   # If we get to here then no match could be found.
   await client.statusContent($Http404, error($Http404, jesterVer),
-                       {"Content-type": "text/html"}.newStringTable)
+                       {"Content-type": "text/html;charset=utf-8"}.newStringTable)
 
 proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
   result = true
@@ -223,12 +236,12 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     for key, val in cgi.decodeData(query):
       params[key] = val
   except CgiError:
-    echo("[Warning] Incorrect query. Got: ", query)
+    logging.warn("Incorrect query. Got: $1" % [query])
 
   var parsedReqMethod = HttpGet
   if not parseReqMethod(reqMethod, parsedReqMethod):
     await client.statusContent($Http400, error($Http400, jesterVer),
-                           {"Content-type": "text/html"}.newStringTable)
+                           {"Content-type": "text/html;charset=utf-8"}.newStringTable)
     return
 
   var matched = false
@@ -242,7 +255,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
 
   var resp = Response(client: client)
 
-  echo(reqMethod, " ", req.pathInfo)
+  logging.debug("$1 $2" % [reqMethod, req.pathInfo])
 
   var failed = false # Workaround for no 'await' in 'except' body
   var matchProcFut: Future[bool]
@@ -259,7 +272,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     let error = traceback & matchProcFut.error.msg
     await client.statusContent($Http502,
         routeException(error, jesterVer),
-        {"Content-Type": "text/html"}.newStringTable)
+        {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
 
     return
 
@@ -268,28 +281,30 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
       await client.statusContent($resp.data.code, resp.data.content,
                                   resp.data.headers)
     else:
-      echo("  ", resp.data.action)
+      logging.debug("  $1" % [$resp.data.action])
   else:
     # Find static file.
     # TODO: Caching.
     let publicRequested = jes.settings.staticDir / req.pathInfo
     if existsDir(publicRequested):
-      await client.sendStaticIfExists(jes, @[publicRequested / "index.html",
-                                        publicRequested / "index.htm"])
+      await client.sendStaticIfExists(req, jes,
+                                      @[publicRequested / "index.html",
+                                      publicRequested / "index.htm"])
     else:
-      await client.sendStaticIfExists(jes, @[publicRequested])
+      await client.sendStaticIfExists(req, jes, @[publicRequested])
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
-proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request) {.async.} =
-  await handleRequest(jes, req.client, req.url.path, req.url.query,
+proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request): Future[void] =
+  result = handleRequest(jes, req.client, req.url.path, req.url.query,
                       req.body, req.hostname, req.reqMethod, req.headers)
 
 proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
-                  appName = ""): Settings =
+                  appName = "", bindAddr = ""): Settings =
   result = Settings(staticDir: staticDir,
                      appName: appName,
-                     port: port)
+                     port: port,
+                     bindAddr: bindAddr)
 
 proc serve*(
     match:
@@ -303,11 +318,20 @@ proc serve*(
   jes.matchProc = match
   jes.httpServer = newAsyncHttpServer()
 
+  # Ensure we have at least one logger enabled, defaulting to console.
+  if logging.getHandlers().len == 0:
+    addHandler(logging.newConsoleLogger())
+    setLogFilter(when defined(release): lvlInfo else: lvlDebug)
+
   asyncCheck jes.httpServer.serve(jes.settings.port,
     proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
-      handleHTTPRequest(jes, req))
-  echo("Jester is making jokes at http://localhost" &
-       ":" & $jes.settings.port & jes.settings.appName)
+      handleHTTPRequest(jes, req), settings.bindAddr)
+  if settings.bindAddr.len > 0:
+    logging.info("Jester is making jokes at http://$1:$2$3" %
+                 [settings.bindAddr, $jes.settings.port, jes.settings.appName])
+  else:
+    logging.info("Jester is making jokes at http://localhost:$1$2" %
+                 [$jes.settings.port, jes.settings.appName])
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
@@ -316,7 +340,7 @@ template resp*(code: HttpCode,
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
 
-template resp*(content: string, contentType = "text/html"): stmt =
+template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable, strtabs.`[]=`
@@ -326,7 +350,7 @@ template resp*(content: string, contentType = "text/html"): stmt =
   response.data[3] = content
 
 template resp*(code: HttpCode, content: string,
-               contentType = "text/html"): stmt =
+               contentType = "text/html;charset=utf-8"): stmt =
   ## Sets ``content`` as the response; ``code`` as the status code
   ## and ``contentType`` as the Content-Type.
   bind TCActionSend, newStringTable
@@ -395,16 +419,16 @@ template halt*(code: HttpCode,
 template halt*(): stmt =
   ## Halts the execution of this request immediately. Returns a 404.
   ## All previously set values are **discarded**.
-  halt(Http404, {"Content-Type": "text/html"}, error($Http404, jesterVer))
+  halt(Http404, {"Content-Type": "text/html;charset=utf-8"}, error($Http404, jesterVer))
 
 template halt*(code: HttpCode): stmt =
-  halt(code, {"Content-Type": "text/html"}, error($code, jesterVer))
+  halt(code, {"Content-Type": "text/html;charset=utf-8"}, error($code, jesterVer))
 
 template halt*(content: string): stmt =
-  halt(Http404, {"Content-Type": "text/html"}, content)
+  halt(Http404, {"Content-Type": "text/html;charset=utf-8"}, content)
 
 template halt*(code: HttpCode, content: string): stmt =
-  halt(code, {"Content-Type": "text/html"}, content)
+  halt(code, {"Content-Type": "text/html;charset=utf-8"}, content)
 
 template attachment*(filename = ""): stmt =
   ## Creates an attachment out of ``filename``. Once the route exits,
@@ -448,25 +472,24 @@ proc makeUri*(request: jester.Request, address = "", absolute = true,
   ## ``address``.
 
   # Check if address already starts with scheme://
-  var url = Url("")
-  if address.find("://") != -1: return address
+  var uri = parseUri(address)
+
+  if uri.scheme != "": return address
+  uri.path = "/"
+  uri.query = ""
+  uri.anchor = ""
   if absolute:
-    url.add(Url("http$1://" % [if request.secure: "s" else: ""]))
+    uri.hostname = request.host
+    uri.scheme = (if request.secure: "https" else: "http")
     if request.port != (if request.secure: 443 else: 80):
-      url.add(Url(request.host & ":" & $request.port))
-    else:
-      url.add(Url(request.host))
+      uri.port = $request.port
+
+  if addScriptName: uri = uri / request.appName
+  if address != "":
+    uri = uri / address
   else:
-    url.add(Url("/"))
-
-  if addScriptName: url.add(Url(request.appName))
-  url.add(if address != "": address.Url else: request.pathInfo.Url)
-  return string(url)
-
-proc makeUri*(request: jester.Request, address: Url = Url(""),
-              absolute = true, addScriptName = true): string =
-  ## Overload for Url.
-  return request.makeUri($address, absolute, addScriptName)
+    uri = uri / request.pathInfo
+  return $uri
 
 template uri*(address = "", absolute = true, addScriptName = true): expr =
   ## Convenience template which can be used in a route.
@@ -489,7 +512,7 @@ template setCookie*(name, value: string, expires: TimeInfo): stmt =
 
 proc normalizeUri*(uri: string): string =
   ## Remove any trailing ``/``.
-  if uri[^1] == '/': result = uri[0 .. ^2]
+  if uri[uri.len-1] == '/': result = uri[0 .. uri.len-2]
   else: result = uri
 
 # -- Macro
@@ -504,11 +527,11 @@ proc guessAction(resp: Response) =
       resp.data.action = TCActionSend
       resp.data.code = Http200
       if not resp.data.headers.hasKey("Content-Type"):
-        resp.data.headers["Content-Type"] = "text/html"
+        resp.data.headers["Content-Type"] = "text/html;charset=utf-8"
     else:
       resp.data.action = TCActionSend
       resp.data.code = Http502
-      resp.data.headers = {"Content-Type": "text/html"}.newStringTable
+      resp.data.headers = {"Content-Type": "text/html;charset=utf-8"}.newStringTable
       resp.data.content = error($Http502, jesterVer)
 
 proc checkAction(response: Response): bool =
@@ -521,19 +544,19 @@ proc checkAction(response: Response): bool =
   of TCActionNothing:
     assert(false)
 
-proc skipDo(node: PNimrodNode): PNimrodNode {.compiletime.} =
+proc skipDo(node: NimNode): NimNode {.compiletime.} =
   if node.kind == nnkDo:
     result = node[6]
   else:
     result = node
 
-proc ctParsePattern(pattern: string): PNimrodNode {.compiletime.} =
+proc ctParsePattern(pattern: string): NimNode {.compiletime.} =
   result = newNimNode(nnkPrefix)
   result.add newIdentNode("@")
   result.add newNimNode(nnkBracket)
 
-  proc addPattNode(res: var PNimrodNode, typ, text,
-                   optional: PNimrodNode) {.compiletime.} =
+  proc addPattNode(res: var NimNode, typ, text,
+                   optional: NimNode) {.compiletime.} =
     var objConstr = newNimNode(nnkObjConstr)
 
     objConstr.add bindSym("Node")
@@ -568,7 +591,7 @@ template declareSettings(): stmt {.immediate, dirty.} =
   when not declaredInScope(settings):
     var settings = newSettings()
 
-proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compiletime.} =
+proc transformRouteBody(node, thisRouteSym: NimNode): NimNode {.compiletime.} =
   result = node
   case node.kind
   of nnkCall, nnkCommand:
@@ -594,20 +617,20 @@ proc transformRouteBody(node, thisRouteSym: PNimrodNode): PNimrodNode {.compilet
       result[i] = transformRouteBody(node[i], thisRouteSym)
 
 proc createJesterPattern(body,
-     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
   var ctPattern = ctParsePattern(body[i][1].strVal)
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
       newCall(bindSym"match", ctPattern, parseExpr("request.pathInfo")))
 
 proc createRegexPattern(body, reMatchesSym,
-     patternMatchSym: PNimrodNode, i: int): PNimrodNode {.compileTime.} =
+     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
       newCall(bindSym"find", parseExpr("request.pathInfo"), body[i][1],
               reMatchesSym))
 
-proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
+proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   case pattern.kind
   of nnkStrLit:
     return MSpecial
@@ -616,11 +639,11 @@ proc determinePatternType(pattern: PNimrodNode): MatchType {.compileTime.} =
     case ($pattern[0].ident).normalize
     of "re": return MRegex
     else:
-      error("Invalid pattern type: " & $pattern[0].ident)
+      macros.error("Invalid pattern type: " & $pattern[0].ident)
   else:
-    error("Unexpected node kind: " & $pattern.kind)
+    macros.error("Unexpected node kind: " & $pattern.kind)
 
-proc createRoute(body, dest: PNimrodNode, i: int) {.compileTime.} =
+proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
 
@@ -763,7 +786,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
   matchBody.add caseStmt
 
   var matchProc = parseStmt("proc match(request: Request," &
-    "response: Response): Future[bool] {.async.} = discard")
+    "response: jester.Response): Future[bool] {.async.} = discard")
   matchProc[0][6] = matchBody
   result.add(outsideStmts)
   result.add(matchProc)

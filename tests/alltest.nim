@@ -1,8 +1,11 @@
+# Copyright (C) 2015 Dominik Picheta
+# MIT License - Look at license.txt for details.
 import jester, asyncdispatch, strutils, math, os, asyncnet, re
 
 settings:
   port = Port(5454)
   appName = "/foo"
+  bindAddr = "127.0.0.1"
 
 routes:
   get "/":

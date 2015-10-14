@@ -3,7 +3,7 @@
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly 
 creating web applications in Nim.
 
-**Note:** Jester requires Nim version 0.10.0.
+**Note:** Jester requires Nim version 0.11.2.
 
 ```nimrod
 # example.nim
