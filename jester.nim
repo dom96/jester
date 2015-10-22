@@ -159,24 +159,24 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
   result.body = body
   result.appName = jes.settings.appName
   result.headers = headers
-  if result.headers["Content-Type"].startswith("application/x-www-form-urlencoded"):
+  if result.headers.getOrDefault("Content-Type").startswith("application/x-www-form-urlencoded"):
     try:
       parseUrlQuery(body, result.params)
     except:
       logging.warn("Could not parse URL query.")
-  elif result.headers["Content-Type"].startsWith("multipart/form-data"):
-    result.formData = parseMPFD(result.headers["Content-Type"], body)
-  if result.headers["SERVER_PORT"] != "":
-    result.port = result.headers["SERVER_PORT"].parseInt
+  elif (let ct = result.headers.getOrDefault("Content-Type"); ct.startsWith("multipart/form-data")):
+    result.formData = parseMPFD(ct, body)
+  if (let p = result.headers.getOrDefault("SERVER_PORT"); p != ""):
+    result.port = p.parseInt
   else:
     result.port = 80
   result.ip = ip
-  result.host = result.headers["HOST"]
+  result.host = result.headers.getOrDefault("HOST")
   result.pathInfo = path.stripAppName(result.appName)
   result.path = path
   result.secure = false
-  if result.headers["Cookie"] != "":
-    result.cookies = parseCookies(result.headers["Cookie"])
+  if (let cookie = result.headers.getOrDefault("Cookie"); cookie != ""):
+    result.cookies = parseCookies(cookie)
   else: result.cookies = newStringTable()
   result.reqMeth = reqMeth
   result.settings = jes.settings
