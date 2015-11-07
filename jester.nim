@@ -445,7 +445,10 @@ template attachment*(filename = ""): stmt =
 template `@`*(s: string): expr =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be
   ## returned if parameter doesn't exist.
-  request.params[s]
+  if request.params.hasKey(s):
+    request.params[s]
+  else:
+    ""
 
 proc setStaticDir*(request: Request, dir: string) =
   ## Sets the directory in which Jester will look for static files. It is
