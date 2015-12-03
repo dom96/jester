@@ -8,7 +8,7 @@ import private/patterns,
        private/errorpages,
        private/utils
 
-from cgi import decodeData, CgiError
+from cgi import decodeData, decodeUrl, CgiError
 
 export strtabs
 export tables
@@ -285,7 +285,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   else:
     # Find static file.
     # TODO: Caching.
-    let publicRequested = jes.settings.staticDir / req.pathInfo
+    let publicRequested = jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
     if existsDir(publicRequested):
       await client.sendStaticIfExists(req, jes,
                                       @[publicRequested / "index.html",
