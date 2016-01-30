@@ -170,7 +170,9 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
     result.port = p.parseInt
   else:
     result.port = 80
-  result.ip = result.headers.getOrDefault("REMOTE_ADDR", ip)
+  result.ip = ip
+  if result.headers.hasKey("REMOTE_ADDR"):
+    result.ip = result.headers["REMOTE_ADDR"]
   result.host = result.headers.getOrDefault("HOST")
   result.pathInfo = path.stripAppName(result.appName)
   result.path = path
