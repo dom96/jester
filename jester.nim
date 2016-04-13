@@ -189,7 +189,12 @@ proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
   for p in paths:
     if existsFile(p):
 
-      # TODO: Check file permissions
+      var fp = getFilePermissions(p)
+      if not fp.contains(fpOthersRead):
+        await client.statusContent($Http403, error($Http403, jesterVer),
+                         {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
+        return
+
       var file = readFile(p)
 
       var hashed = getMD5(file)
