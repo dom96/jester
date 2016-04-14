@@ -446,7 +446,8 @@ template attachment*(filename = ""): stmt =
     var param = "; filename=\"" & extractFilename(filename) & "\""
     response.data[2].mget("Content-Disposition").add(param)
     let ext = splitFile(filename).ext
-    if not (response.data[2]["Content-Type"] != "" or ext == ""):
+    let ct = response.data[2].getOrDefault("Content-Type")
+    if  (ct != nil and ct != "" and ext != ""):
       response.data[2]["Content-Type"] = getMimetype(request.settings.mimes, splitFile(filename).ext)
 
 template `@`*(s: string): expr =
