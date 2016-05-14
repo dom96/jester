@@ -20,7 +20,7 @@ type
   Jester = object
     httpServer*: AsyncHttpServer
     settings: Settings
-    matchProc: proc (request: Request, response: Response): Future[bool] {.gcsafe.}
+    matchProcs: seq[proc (request: Request, response: Response): Future[bool] {.gcsafe.}]
 
   Settings* = ref object
     staticDir*: string # By default ./public
@@ -81,6 +81,12 @@ type
   TReqMeth: ReqMeth, TCallbackAction: CallbackAction, TCallback: Callback].}
 
 const jesterVer = "0.1.0"
+
+var jes: Jester
+jes.matchProcs = @[]
+
+proc addMatch*(match: proc (request: Request, response: Response): Future[bool] {.gcsafe.}) =
+  jes.matchProcs.add(match)
 
 proc createHeaders(status: string, headers: StringTableRef): string =
   result = ""
@@ -266,13 +272,17 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
 
   var failed = false # Workaround for no 'await' in 'except' body
   var matchProcFut: Future[bool]
-  try:
-    matchProcFut = jes.matchProc(req, resp)
-    matched = await matchProcFut
-  except:
-    # Handle any errors by showing them in the browser.
-    # TODO: Improve the look of this.
-    failed = true
+  for matchProc in jes.matchProcs:
+    try:
+      matchProcFut = matchProc(req, resp)
+      matched = await matchProcFut
+      if matched:
+        break
+    except:
+      # Handle any errors by showing them in the browser.
+      # TODO: Improve the look of this.
+      failed = true
+      break
 
   if failed:
     let traceback = getStackTrace(matchProcFut.error).replace("\n", "<br/>\n")
@@ -313,16 +323,11 @@ proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
                      port: port,
                      bindAddr: bindAddr)
 
-proc serve*(
-    match:
-      proc (request: Request, response: Response): Future[bool] {.gcsafe.},
-    settings: Settings = newSettings()) =
+proc serve*(settings: Settings = newSettings()) {.async.} =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
-  var jes: Jester
   jes.settings = settings
   jes.settings.mimes = newMimetypes()
-  jes.matchProc = match
   jes.httpServer = newAsyncHttpServer()
 
   # Ensure we have at least one logger enabled, defaulting to console.
@@ -330,15 +335,15 @@ proc serve*(
     addHandler(logging.newConsoleLogger())
     setLogFilter(when defined(release): lvlInfo else: lvlDebug)
 
-  asyncCheck jes.httpServer.serve(jes.settings.port,
-    proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
-      handleHTTPRequest(jes, req), settings.bindAddr)
   if settings.bindAddr.len > 0:
     logging.info("Jester is making jokes at http://$1:$2$3" %
                  [settings.bindAddr, $jes.settings.port, jes.settings.appName])
   else:
     logging.info("Jester is making jokes at http://localhost:$1$2" %
                  [$jes.settings.port, jes.settings.appName])
+  await jes.httpServer.serve(jes.settings.port,
+    proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
+      handleHTTPRequest(jes, req), settings.bindAddr)
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
@@ -711,9 +716,6 @@ macro routes*(body: stmt): stmt {.immediate.} =
   #echo(treeRepr(body))
   result = newStmtList()
 
-  # -> declareSettings()
-  result.add newCall(bindSym"declareSettings")
-
   var outsideStmts = newStmtList()
 
   var matchBody = newNimNode(nnkStmtList)
@@ -799,10 +801,16 @@ macro routes*(body: stmt): stmt {.immediate.} =
   var matchProc = parseStmt("proc match(request: Request," &
     "response: jester.Response): Future[bool] {.async.} = discard")
   matchProc[0][6] = matchBody
+  var addMacthProc = parseStmt("jester.addMatch(match)")
+  var blockStmt = newNimNode(nnkBlockStmt)
+  blockStmt.add(newNimNode(nnkEmpty))
+  var blockStmtList = newNimNode(nnkStmtList)
+  blockStmtList.add(matchProc)
+  blockStmtList.add(addMacthProc)
+  blockStmt.add(blockStmtList)
   result.add(outsideStmts)
-  result.add(matchProc)
-
-  result.add parseExpr("jester.serve(match, settings)")
+  result.add(blockStmt)
+  echo repr result
   #echo toStrLit(result)
   #echo treeRepr(result)
 
