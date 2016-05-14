@@ -13,7 +13,7 @@ routes:
   get "/":
     resp h1("Hello world")
 
-runForever()
+waitFor jester.serve(settings)
 ```
 
 Compile and run with:
@@ -68,6 +68,35 @@ get "/hello/@name?":
 In this case you might want to make the leading '/' optional too, you can do this
 by changing the pattern to "/hello/?@name?". This is useful because Jester will
 not match "/hello" if the leading '/' is not made optional.
+
+## Separate Routes
+
+You can write separate routes in multiple ``routes`` or multiple files.
+
+helloroute.nim:
+
+```nimrod
+routes:
+  get "/hello":
+    resp "get hello"
+  post "/hello":
+    resp "post hello"
+```
+
+server.nim:
+
+```nimrod
+routes:
+  get "/":
+    resp "get /"
+  post "/":
+    resp "post /"
+
+include "helloroute.nim"
+# include more route files ...
+
+waitFor jester.serve(settings)
+```
 
 ### Regex
 
@@ -189,5 +218,5 @@ routes:
     var push = parseJson(@"payload")
     resp "I got some JSON: " & $push
 
-runForever()
+waitFor jester.serve(settings)
 ```
