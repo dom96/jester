@@ -13,7 +13,7 @@ routes:
   get "/":
     resp h1("Hello world")
 
-waitFor jester.serve(settings)
+waitFor jester.serve()
 ```
 
 Compile and run with:
@@ -86,6 +86,9 @@ routes:
 server.nim:
 
 ```nimrod
+settings:
+  bindAddr = "0.0.0.0"
+
 routes:
   get "/":
     resp "get /"
@@ -218,5 +221,5 @@ routes:
     var push = parseJson(@"payload")
     resp "I got some JSON: " & $push
 
-waitFor jester.serve(settings)
+waitFor jester.serve()
 ```

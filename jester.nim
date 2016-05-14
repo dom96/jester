@@ -276,11 +276,12 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     try:
       matchProcFut = matchProc(req, resp)
       matched = await matchProcFut
+      if matched:
+        break
     except:
       # Handle any errors by showing them in the browser.
       # TODO: Improve the look of this.
       failed = true
-    if matched:
       break
 
   if failed:
@@ -715,9 +716,6 @@ macro routes*(body: stmt): stmt {.immediate.} =
   #echo(treeRepr(body))
   result = newStmtList()
 
-  # -> declareSettings()
-  result.add newCall(bindSym"declareSettings")
-
   var outsideStmts = newStmtList()
 
   var matchBody = newNimNode(nnkStmtList)
@@ -812,7 +810,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
   blockStmt.add(blockStmtList)
   result.add(outsideStmts)
   result.add(blockStmt)
-
+  echo repr result
   #echo toStrLit(result)
   #echo treeRepr(result)
 
