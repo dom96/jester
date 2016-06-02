@@ -128,6 +128,9 @@ using the ``setStaticDir`` function. Files will be served like so:
 
 ./public/css/style.css ``->`` http://example.com/css/style.css
 
+**Note**: Jester will only serve files, that are readable by ``others``. On
+Unix/Linux you can ensure this with ``chmod o+r ./public/css/style.css``.
+
 ## Cookies
 
 Cookies can be set using the ``setCookie`` function.

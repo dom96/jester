@@ -189,7 +189,12 @@ proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
   for p in paths:
     if existsFile(p):
 
-      # TODO: Check file permissions
+      var fp = getFilePermissions(p)
+      if not fp.contains(fpOthersRead):
+        await client.statusContent($Http403, error($Http403, jesterVer),
+                         {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
+        return
+
       var file = readFile(p)
 
       var hashed = getMD5(file)
@@ -201,13 +206,13 @@ proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
       else:
         let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. p.splitFile.ext.len-1])
         await client.statusContent($Http200, file, {
-                                   "Content-type": mimetype,
+                                   "Content-Type": mimetype,
                                    "ETag": hashed }.newStringTable)
       return
 
   # If we get to here then no match could be found.
   await client.statusContent($Http404, error($Http404, jesterVer),
-                       {"Content-type": "text/html;charset=utf-8"}.newStringTable)
+                       {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
 
 proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
   result = true
@@ -243,7 +248,7 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   var parsedReqMethod = HttpGet
   if not parseReqMethod(reqMethod, parsedReqMethod):
     await client.statusContent($Http400, error($Http400, jesterVer),
-                           {"Content-type": "text/html;charset=utf-8"}.newStringTable)
+                           {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
     return
 
   var matched = false
