@@ -2,7 +2,7 @@
 # MIT License - Look at license.txt for details.
 import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
-       logging
+       logging, httpcore
 
 import private/patterns,
        private/errorpages,
@@ -40,7 +40,7 @@ type
     body*: string                 ## Body of the request, only for POST.
                                   ## You're probably looking for ``formData``
                                   ## instead.
-    headers*: StringTableRef      ## Headers received with the request.
+    headers*: HttpHeaders         ## Headers received with the request.
                                   ## Retrieving these is case insensitive.
     formData*: MultiData          ## Form data; only present for
                                   ## multipart/form-data
@@ -152,8 +152,8 @@ proc stripAppName(path, appName: string): string =
           "Expected script name at beginning of path. Got path: " &
            path & " script name: " & slashAppName)
 
-proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth, headers,
-               params: StringTableRef): Request =
+proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth,
+               headers: HttpHeaders, params: StringTableRef): Request =
   new(result)
   result.params = params
   result.body = body
@@ -232,7 +232,7 @@ proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
 template setMatches(req: expr) = req.matches = matches # Workaround.
 proc handleRequest(jes: Jester, client: AsyncSocket,
                    path, query, body, ip, reqMethod: string,
-                   headers: StringTableRef) {.async.} =
+                   headers: HttpHeaders) {.async.} =
   var params = {:}.newStringTable()
   try:
     for key, val in cgi.decodeData(query):
@@ -441,8 +441,8 @@ template attachment*(filename = ""): stmt =
     var param = "; filename=\"" & extractFilename(filename) & "\""
     response.data[2].mget("Content-Disposition").add(param)
     let ext = splitFile(filename).ext
-    if not (response.data[2]["Content-Type"] != "" or ext == ""):
-      response.data[2]["Content-Type"] = getMimetype(request.settings.mimes, splitFile(filename).ext)
+    if not response.data[2].hasKey("Content-Type") and ext != "":
+      response.data[2]["Content-Type"] = getMimetype(request.settings.mimes, ext)
 
 template `@`*(s: string): expr =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be

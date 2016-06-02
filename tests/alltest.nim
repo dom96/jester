@@ -1,6 +1,6 @@
 # Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import jester, asyncdispatch, strutils, math, os, asyncnet, re
+import jester, asyncdispatch, strutils, random, os, asyncnet, re
 
 settings:
   port = Port(5454)
@@ -56,7 +56,7 @@ routes:
     await response.sendHeaders()
     for i in 0 .. 10:
       await response.send("The number is: " & $i & "</br>")
-      sleep(1000)
+      await sleepAsync(1000)
     response.client.close()
 
   # curl -v -F file='blah' http://dom96.co.cc:5000
