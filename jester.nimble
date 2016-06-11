@@ -6,3 +6,6 @@ description   = "A sinatra-like web framework for Nim."
 license       = "MIT"
 
 SkipFiles = "todo.markdown"
+
+[Deps]
+Requires: "nim >= 0.14.0"
