@@ -1,6 +1,6 @@
 # Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import unittest, httpclient, strutils, asyncdispatch, strtabs
+import unittest, httpclient, strutils, asyncdispatch
 
 const port = 5454
 
@@ -25,9 +25,12 @@ test "/guess":
 
 test "/redirect":
   let resp = waitFor client.request("http://localhost:" & $port & "/foo/redirect/halt", httpGet)
-  # TODO: Should this not contain the port?
-  check resp.headers["location"] == "http://localhost/foo/halt"
+  check resp.headers["location"] == "http://localhost:5454/foo/halt"
 
 test "regex":
   let resp = waitFor client.get("http://localhost:" & $port & "/foo/02.html")
   check resp.body == "02"
+
+test "resp":
+  let resp = waitFor client.get("http://localhost:" & $port & "/foo/resp")
+  check resp.body == "This should be the response"

@@ -11,6 +11,11 @@ routes:
   get "/":
     resp "Hello World"
 
+  get "/resp":
+    if true:
+      resp "This should be the response"
+    resp "This should NOT be the response"
+
   get "/halt":
     halt Http502, "I'm sorry, this page has been halted."
     resp "test"
