@@ -346,6 +346,8 @@ template resp*(code: HttpCode,
   ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
+  # The ``route`` macro will add a 'return' after the invokation of this
+  # template.
 
 template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code
@@ -355,6 +357,8 @@ template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   response.data[1] = Http200
   response.data[2]["Content-Type"] = contentType
   response.data[3] = content
+  # The ``route`` macro will add a 'return' after the invokation of this
+  # template.
 
 template resp*(code: HttpCode, content: string,
                contentType = "text/html;charset=utf-8"): stmt =
@@ -365,6 +369,8 @@ template resp*(code: HttpCode, content: string,
   response.data[1] = code
   response.data[2]["Content-Type"] = contentType
   response.data[3] = content
+  # The ``route`` macro will add a 'return' after the invokation of this
+  # template.
 
 template body*(): expr =
   ## Gets the body of the request.
@@ -611,7 +617,7 @@ proc transformRouteBody(node, thisRouteSym: NimNode): NimNode {.compiletime.} =
         result = newStmtList()
         result.add node
         result.add newNimNode(nnkBreakStmt).add(thisRouteSym)
-      of "redirect", "halt":
+      of "redirect", "halt", "resp":
         result = newStmtList()
         result.add node
         result.add newNimNode(nnkReturnStmt).add(newIdentNode("true"))
@@ -802,7 +808,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
   result.add(matchProc)
 
   result.add parseExpr("jester.serve(match, settings)")
-  #echo toStrLit(result)
+  echo toStrLit(result)
   #echo treeRepr(result)
 
 macro settings*(body: stmt): stmt {.immediate.} =
