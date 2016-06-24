@@ -69,7 +69,8 @@ type
     HttpDelete = "DELETE",
     HttpHead = "HEAD",
     HttpOptions = "OPTIONS",
-    HttpTrace = "TRACE"
+    HttpTrace = "TRACE",
+    HttpPatch = "PATCH"
 
   CallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
@@ -231,6 +232,8 @@ proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
     output = HttpOptions
   of "trace":
     output = HttpTrace
+  of "patch":
+    output = HttpPatch
   else:
     result = false
 
@@ -733,13 +736,14 @@ macro routes*(body: stmt): stmt {.immediate.} =
   var caseStmtHeadBody = newNimNode(nnkStmtList)
   var caseStmtOptionsBody = newNimNode(nnkStmtList)
   var caseStmtTraceBody = newNimNode(nnkStmtList)
+  var caseStmtPatchBody = newNimNode(nnkStmtList)
 
   for i in 0 .. <body.len:
     case body[i].kind
     of nnkCommand:
       let cmdName = body[i][0].ident.`$`.normalize
       case cmdName
-      of "get", "post", "put", "delete", "head", "options", "trace":
+      of "get", "post", "put", "delete", "head", "options", "trace", "patch":
         case cmdName
         of "get":
           createRoute(body, caseStmtGetBody, i)
@@ -755,6 +759,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
           createRoute(body, caseStmtOptionsBody, i)
         of "trace":
           createRoute(body, caseStmtTraceBody, i)
+        of "patch":
+          createRoute(body, caseStmtPatchBody, i)
         else:
           discard
       else:
@@ -798,6 +804,11 @@ macro routes*(body: stmt): stmt {.immediate.} =
   ofBranchTrace.add newIdentNode("HttpTrace")
   ofBranchTrace.add caseStmtTraceBody
   caseStmt.add ofBranchTrace
+
+  var ofBranchPatch = newNimNode(nnkOfBranch)
+  ofBranchPatch.add newIdentNode("HttpPatch")
+  ofBranchPatch.add caseStmtPatchBody
+  caseStmt.add ofBranchPatch
 
   matchBody.add caseStmt
 
