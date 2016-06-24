@@ -96,4 +96,9 @@ routes:
   get re"^\/([0-9]{2})\.html$":
     resp request.matches[0]
 
+  patch "/patch":
+    body.add "Received: "
+    body.add($request.body)
+    status = Http200
+
 runForever()
