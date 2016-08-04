@@ -34,3 +34,7 @@ test "regex":
 test "resp":
   let resp = waitFor client.get("http://localhost:" & $port & "/foo/resp")
   check resp.body == "This should be the response"
+
+test "closures":
+  let resp = waitFor client.get("http://localhost:" & $port & "/foo/closures")
+  check resp.body == "This value is in closure"
