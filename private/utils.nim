@@ -4,7 +4,7 @@ import parseutils, strtabs, strutils, tables
 from cgi import decodeUrl
 
 type
-  MultiData* = Table[string, tuple[fields: StringTableRef, body: string]]
+  MultiData* = OrderedTable[string, tuple[fields: StringTableRef, body: string]]
 
 proc parseUrlQuery*(query: string, result: var StringTableRef) =
   var i = 0
@@ -38,7 +38,7 @@ template parseContentDisposition(): stmt =
       hCount += hValue.skipWhitespace(hCount)
 
 proc parseMultiPart*(body: string, boundary: string): MultiData =
-  result = initTable[string, tuple[fields: StringTableRef, body: string]]()
+  result = initOrderedTable[string, tuple[fields: StringTableRef, body: string]]()
   var mboundary = "--" & boundary
 
   var i = 0
@@ -83,7 +83,7 @@ proc parseMultiPart*(body: string, boundary: string): MultiData =
       inc(i)
     i += body.skipWhitespace(i)
 
-    result[name] = newPart
+    result.add(name, newPart)
 
 proc parseMPFD*(contentType: string, body: string): MultiData =
   var boundaryEqIndex = contentType.find("boundary=")+9
