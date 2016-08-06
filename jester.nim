@@ -20,7 +20,7 @@ type
   Jester = object
     httpServer*: AsyncHttpServer
     settings: Settings
-    matchProc: proc (request: Request, response: Response): Future[bool] {.gcsafe.}
+    matchProc: proc (request: Request, response: Response): Future[bool] {.gcsafe, closure.}
 
   Settings* = ref object
     staticDir*: string # By default ./public
@@ -75,7 +75,7 @@ type
   CallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
 
-  Callback = proc (request: jester.Request, response: Response): Future[void] {.gcsafe.}
+  Callback = proc (request: jester.Request, response: Response): Future[void] {.gcsafe, closure.}
 
 {.deprecated: [TJester: Jester, PSettings: Settings, TMatchType: MatchType,
   TMultiData: MultiData, PRequest: Request, PResponse: Response,
@@ -318,7 +318,7 @@ proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
 
 proc serve*(
     match:
-      proc (request: Request, response: Response): Future[bool] {.gcsafe.},
+      proc (request: Request, response: Response): Future[bool] {.gcsafe, closure.},
     settings: Settings = newSettings()) =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
@@ -334,7 +334,7 @@ proc serve*(
     setLogFilter(when defined(release): lvlInfo else: lvlDebug)
 
   asyncCheck jes.httpServer.serve(jes.settings.port,
-    proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
+    proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
       handleHTTPRequest(jes, req), settings.bindAddr)
   if settings.bindAddr.len > 0:
     logging.info("Jester is making jokes at http://$1:$2$3" %
