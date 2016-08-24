@@ -191,3 +191,23 @@ routes:
 
 runForever()
 ```
+
+### Demo webapp
+
+```nimrod
+import jester, asyncdispatch, json
+import httpcore
+
+routes:
+  post "/receive_json":
+    try:
+      let j = parseJson(request.body)
+    except:
+      resp Http400, "Unable to parse JSON payload"
+    
+  # Using an HTML template from http://nim-lang.org/docs/filters.html
+  get "/generated_page":
+    resp generateHTMLPage("foo", "bar", "baz")
+    
+runForever()
+```
