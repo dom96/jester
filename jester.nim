@@ -278,10 +278,13 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     failed = true
 
   if failed:
-    let traceback = getStackTrace(matchProcFut.error).replace("\n", "<br/>\n")
-    let error = traceback & matchProcFut.error.msg
+    let traceback = getStackTrace(matchProcFut.error)
+    var errorMsg = matchProcFut.error.msg
+    if errorMsg.isNil: errorMsg = "(nil)"
+    let error = traceback & errorMsg
+    logging.error(error)
     await client.statusContent($Http502,
-        routeException(error, jesterVer),
+        routeException(error.replace("\n", "<br/>\n"), jesterVer),
         {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
 
     return
