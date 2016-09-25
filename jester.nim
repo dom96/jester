@@ -21,7 +21,7 @@ type
   Jester = object
     httpServer*: AsyncHttpServer
     settings: Settings
-    matchProc: proc (request: Request, response: Response): Future[bool] {.gcsafe.}
+    matchProc: proc (request: Request, response: Response): Future[bool] {.gcsafe, closure.}
 
   Settings* = ref object
     staticDir*: string # By default ./public
@@ -66,7 +66,7 @@ type
   CallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
 
-  Callback = proc (request: jester.Request, response: Response): Future[void] {.gcsafe.}
+  Callback = proc (request: jester.Request, response: Response): Future[void] {.gcsafe, closure.}
 
 {.deprecated: [TJester: Jester, PSettings: Settings, TMatchType: MatchType,
   TMultiData: MultiData, PRequest: Request, PResponse: Response,
@@ -242,10 +242,13 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     failed = true
 
   if failed:
-    let traceback = getStackTrace(matchProcFut.error).replace("\n", "<br/>\n")
-    let error = traceback & matchProcFut.error.msg
+    let traceback = getStackTrace(matchProcFut.error)
+    var errorMsg = matchProcFut.error.msg
+    if errorMsg.isNil: errorMsg = "(nil)"
+    let error = traceback & errorMsg
+    logging.error(error)
     await client.statusContent($Http502,
-        routeException(error, jesterVer),
+        routeException(error.replace("\n", "<br/>\n"), jesterVer),
         {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
 
     return
@@ -282,7 +285,7 @@ proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
 
 proc serve*(
     match:
-      proc (request: Request, response: Response): Future[bool] {.gcsafe.},
+      proc (request: Request, response: Response): Future[bool] {.gcsafe, closure.},
     settings: Settings = newSettings()) =
   ## Creates a new async http server or scgi server instance and registers
   ## it with the dispatcher.
@@ -298,7 +301,7 @@ proc serve*(
     setLogFilter(when defined(release): lvlInfo else: lvlDebug)
 
   asyncCheck jes.httpServer.serve(jes.settings.port,
-    proc (req: asynchttpserver.Request): Future[void] {.gcsafe.} =
+    proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
       handleHTTPRequest(jes, req), settings.bindAddr)
   if settings.bindAddr.len > 0:
     logging.info("Jester is making jokes at http://$1:$2$3" %
@@ -701,13 +704,15 @@ macro routes*(body: stmt): stmt {.immediate.} =
   var caseStmtOptionsBody = newNimNode(nnkStmtList)
   var caseStmtTraceBody = newNimNode(nnkStmtList)
   var caseStmtConnectBody = newNimNode(nnkStmtList)
+  var caseStmtPatchBody = newNimNode(nnkStmtList)
 
   for i in 0 .. <body.len:
     case body[i].kind
     of nnkCommand:
       let cmdName = body[i][0].ident.`$`.normalize
       case cmdName
-      of "get", "post", "put", "delete", "head", "options", "trace", "connect":
+      of "get", "post", "put", "delete", "head", "options", "trace", "connect",
+         "patch":
         case cmdName
         of "get":
           createRoute(body, caseStmtGetBody, i)
@@ -725,6 +730,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
           createRoute(body, caseStmtTraceBody, i)
         of "connect":
           createRoute(body, caseStmtConnectBody, i)
+        of "patch":
+          createRoute(body, caseStmtPatchBody, i)
         else:
           discard
       else:
@@ -773,6 +780,11 @@ macro routes*(body: stmt): stmt {.immediate.} =
   ofBranchConnect.add newIdentNode("HttpConnect")
   ofBranchConnect.add caseStmtConnectBody
   caseStmt.add ofBranchConnect
+
+  var ofBranchPatch = newNimNode(nnkOfBranch)
+  ofBranchPatch.add newIdentNode("HttpPatch")
+  ofBranchPatch.add caseStmtPatchBody
+  caseStmt.add ofBranchPatch
 
   matchBody.add caseStmt
 
