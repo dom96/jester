@@ -12,9 +12,10 @@ from cgi import decodeData, decodeUrl, CgiError
 
 export strtabs
 export tables
-export HttpCode
+export httpcore
 export NodeType # TODO: Couldn't bindsym this.
 export MultiData
+export HttpMethod
 
 type
   Jester = object
@@ -54,22 +55,13 @@ type
     path*: string                 ## Path of request.
     cookies*: StringTableRef      ## Cookies from the browser.
     ip*: string                   ## IP address of the requesting client.
-    reqMeth*: ReqMeth             ## Request method, eg. HttpGet, HttpPost
+    reqMeth*: HttpMethod          ## Request method, eg. HttpGet, HttpPost
     settings*: Settings
 
   Response* = ref object
     client*: AsyncSocket ## For raw mode.
     data*: tuple[action: CallbackAction, code: HttpCode,
                  headers: StringTableRef, content: string]
-
-  ReqMeth* = enum
-    HttpGet = "GET",
-    HttpPost = "POST",
-    HttpPut = "PUT",
-    HttpDelete = "DELETE",
-    HttpHead = "HEAD",
-    HttpOptions = "OPTIONS",
-    HttpTrace = "TRACE"
 
   CallbackAction* = enum
     TCActionSend, TCActionRaw, TCActionPass, TCActionNothing
@@ -78,7 +70,8 @@ type
 
 {.deprecated: [TJester: Jester, PSettings: Settings, TMatchType: MatchType,
   TMultiData: MultiData, PRequest: Request, PResponse: Response,
-  TReqMeth: ReqMeth, TCallbackAction: CallbackAction, TCallback: Callback].}
+  TReqMeth: HttpMethod, ReqMeth: HttpMethod, TCallbackAction: CallbackAction,
+  TCallback: Callback].}
 
 const jesterVer = "0.1.0"
 
@@ -152,7 +145,7 @@ proc stripAppName(path, appName: string): string =
           "Expected script name at beginning of path. Got path: " &
            path & " script name: " & slashAppName)
 
-proc createReq(jes: Jester, path, body, ip: string, reqMeth: ReqMeth,
+proc createReq(jes: Jester, path, body, ip: string, reqMeth: HttpMethod,
                headers: HttpHeaders, params: StringTableRef): Request =
   new(result)
   result.params = params
@@ -214,29 +207,9 @@ proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
   await client.statusContent($Http404, error($Http404, jesterVer),
                        {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
 
-proc parseReqMethod(reqMethod: string, output: var ReqMeth): bool =
-  result = true
-  case reqMethod.normalize
-  of "get":
-    output = HttpGet
-  of "post":
-    output = HttpPost
-  of "put":
-    output = HttpPut
-  of "delete":
-    output = HttpDelete
-  of "head":
-    output = HttpHead
-  of "options":
-    output = HttpOptions
-  of "trace":
-    output = HttpTrace
-  else:
-    result = false
-
 template setMatches(req: expr) = req.matches = matches # Workaround.
 proc handleRequest(jes: Jester, client: AsyncSocket,
-                   path, query, body, ip, reqMethod: string,
+                   path, query, body, ip: string, reqMethod: HttpMethod,
                    headers: HttpHeaders) {.async.} =
   var params = {:}.newStringTable()
   try:
@@ -245,24 +218,18 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   except CgiError:
     logging.warn("Incorrect query. Got: $1" % [query])
 
-  var parsedReqMethod = HttpGet
-  if not parseReqMethod(reqMethod, parsedReqMethod):
-    await client.statusContent($Http400, error($Http400, jesterVer),
-                           {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
-    return
-
   var matched = false
 
   var req: Request
   try:
-    req = createReq(jes, path, body, ip, parsedReqMethod, headers, params)
+    req = createReq(jes, path, body, ip, reqMethod, headers, params)
   except ValueError:
     client.close()
     return
 
   var resp = Response(client: client)
 
-  logging.debug("$1 $2" % [reqMethod, req.pathInfo])
+  logging.debug("$1 $2" % [$reqMethod, req.pathInfo])
 
   var failed = false # Workaround for no 'await' in 'except' body
   var matchProcFut: Future[bool]
@@ -733,13 +700,14 @@ macro routes*(body: stmt): stmt {.immediate.} =
   var caseStmtHeadBody = newNimNode(nnkStmtList)
   var caseStmtOptionsBody = newNimNode(nnkStmtList)
   var caseStmtTraceBody = newNimNode(nnkStmtList)
+  var caseStmtConnectBody = newNimNode(nnkStmtList)
 
   for i in 0 .. <body.len:
     case body[i].kind
     of nnkCommand:
       let cmdName = body[i][0].ident.`$`.normalize
       case cmdName
-      of "get", "post", "put", "delete", "head", "options", "trace":
+      of "get", "post", "put", "delete", "head", "options", "trace", "connect":
         case cmdName
         of "get":
           createRoute(body, caseStmtGetBody, i)
@@ -755,6 +723,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
           createRoute(body, caseStmtOptionsBody, i)
         of "trace":
           createRoute(body, caseStmtTraceBody, i)
+        of "connect":
+          createRoute(body, caseStmtConnectBody, i)
         else:
           discard
       else:
@@ -798,6 +768,11 @@ macro routes*(body: stmt): stmt {.immediate.} =
   ofBranchTrace.add newIdentNode("HttpTrace")
   ofBranchTrace.add caseStmtTraceBody
   caseStmt.add ofBranchTrace
+
+  var ofBranchConnect = newNimNode(nnkOfBranch)
+  ofBranchConnect.add newIdentNode("HttpConnect")
+  ofBranchConnect.add caseStmtConnectBody
+  caseStmt.add ofBranchConnect
 
   matchBody.add caseStmt
 
