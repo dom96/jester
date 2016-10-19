@@ -36,8 +36,6 @@ All routes must be inside a ``routes`` block.
 Routes will be executed in the order that they are declared. So be careful when
 halting.
 
-Currently only ``get`` and ``post`` routes are available.
-
 The route path may contain a special pattern or just a static string. Special
 patterns are almost identical to Sinatra's, the only real difference is the
 use of ``@`` instead of the ``:``.
