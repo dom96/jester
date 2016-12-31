@@ -307,7 +307,7 @@ proc serve*(
     logging.info("Jester is making jokes at http://$1:$2$3" %
                  [settings.bindAddr, $jes.settings.port, jes.settings.appName])
   else:
-    logging.info("Jester is making jokes at http://0.0.0.0:$1$2" %
+    logging.info("Jester is making jokes at http://localhost:$1$2" %
                  [$jes.settings.port, jes.settings.appName])
 
 template resp*(code: HttpCode,
