@@ -208,9 +208,9 @@ routes:
     resp generateHTMLPage("foo", "bar", "baz")
 
   # Using dynamic routes and custom content types
-  get "/@name/foo.svg":
-    let name = @"name"  # Remember to filter user-submitted data
-    resp(generate_svg(name), contentType = "image/svg+xml")
+  let name = @"name"  # Remember to filter user-submitted data 
+  let json_response = %* {"hello": name} 
+    resp($json_response, contentType = "application/json") 
 
 runForever()
 ```
