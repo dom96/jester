@@ -166,10 +166,22 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: HttpMethod,
   result.ip = ip
   if result.headers.hasKey("REMOTE_ADDR"):
     result.ip = result.headers["REMOTE_ADDR"]
+  if result.headers.hasKey("x-forwarded-for"):
+    result.ip = result.headers["x-forwarded-for"]
   result.host = result.headers.getOrDefault("HOST")
   result.pathInfo = path.stripAppName(result.appName)
   result.path = path
   result.secure = false
+  if result.headers.hasKey("x-forwarded-proto"):
+    let proto = result.headers["x-forwarded-proto"]
+    case proto.toLowerAscii()
+    of "https":
+      result.secure = true
+    of "http":
+      result.secure = false
+    else:
+      logging.warn("Unknown x-forwarded-proto ", proto)
+
   if (let cookie = result.headers.getOrDefault("Cookie"); cookie != ""):
     result.cookies = parseCookies(cookie)
   else: result.cookies = newStringTable()
