@@ -159,10 +159,6 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: HttpMethod,
       logging.warn("Could not parse URL query.")
   elif (let ct = result.headers.getOrDefault("Content-Type"); ct.startsWith("multipart/form-data")):
     result.formData = parseMPFD(ct, body)
-  if (let p = result.headers.getOrDefault("SERVER_PORT"); p != ""):
-    result.port = p.parseInt
-  else:
-    result.port = 80
   result.ip = ip
   if result.headers.hasKey("REMOTE_ADDR"):
     result.ip = result.headers["REMOTE_ADDR"]
@@ -181,6 +177,11 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: HttpMethod,
       result.secure = false
     else:
       logging.warn("Unknown x-forwarded-proto ", proto)
+
+  if (let p = result.headers.getOrDefault("SERVER_PORT"); p != ""):
+    result.port = p.parseInt
+  else:
+    result.port = if result.secure: 443 else: 80
 
   if (let cookie = result.headers.getOrDefault("Cookie"); cookie != ""):
     result.cookies = parseCookies(cookie)
