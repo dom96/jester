@@ -4,9 +4,7 @@ import asynchttpserver, net, strtabs, re, tables, parseutils, os, strutils, uri,
        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
        logging, httpcore
 
-import private/patterns,
-       private/errorpages,
-       private/utils
+import jester/private/[patterns, errorpages, utils]
 
 from cgi import decodeData, decodeUrl, CgiError
 
