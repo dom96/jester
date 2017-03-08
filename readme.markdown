@@ -209,3 +209,11 @@ routes:
 
 runForever()
 ```
+
+### Setting response headers
+```nimrod
+# Caching response strictly for 1h
+response.data.headers["Cache-Control"] = "max-age=3600, must-revalidate, public"
+response.data.headers["ETag"] = "<etag value>"
+resp(...)
+```
