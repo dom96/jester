@@ -29,6 +29,7 @@ type
     mimes*: MimeDb
     port*: Port
     bindAddr*: string
+    errorFilter*: proc(e: ref Exception, res: var Response)
 
   MatchType* = enum
     MRegex, MSpecial
@@ -220,6 +221,16 @@ proc sendStaticIfExists(client: AsyncSocket, req: Request, jes: Jester,
   await client.statusContent($Http404, error($Http404, jesterVer),
                        {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
 
+proc defaultErrorFilter(e: ref Exception, res: var Response) =
+  let traceback = getStackTrace(e)
+  var errorMsg = e.msg
+  if errorMsg.isNil: errorMsg = "(nil)"
+  let error = traceback & errorMsg
+  logging.error(error)
+  res.data.headers = {"Content-Type": "text/html;charset=utf-8"}.newStringTable
+  res.data.content = routeException(error.replace("\n", "<br/>\n"), jesterVer)
+  res.data.code = Http502
+
 template setMatches(req: expr) = req.matches = matches # Workaround.
 proc handleRequest(jes: Jester, client: AsyncSocket,
                    path, query, body, ip: string, reqMethod: HttpMethod,
@@ -255,14 +266,13 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     failed = true
 
   if failed:
-    let traceback = getStackTrace(matchProcFut.error)
-    var errorMsg = matchProcFut.error.msg
-    if errorMsg.isNil: errorMsg = "(nil)"
-    let error = traceback & errorMsg
-    logging.error(error)
-    await client.statusContent($Http502,
-        routeException(error.replace("\n", "<br/>\n"), jesterVer),
-        {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
+    if jes.settings.errorFilter.isNil:
+      defaultErrorFilter(matchProcFut.error, resp)
+    else:
+      jes.settings.errorFilter(matchProcFut.error, resp)
+
+    await client.statusContent($resp.data.code, resp.data.content,
+        resp.data.headers)
 
     return
 
