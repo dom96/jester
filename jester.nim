@@ -29,7 +29,7 @@ type
     mimes*: MimeDb
     port*: Port
     bindAddr*: string
-    errorFilter*: proc(e: ref Exception, res: var Response)
+    errorFilter*: proc(e: ref Exception, res: var Response) {.closure, gcsafe.}
 
   MatchType* = enum
     MRegex, MSpecial
