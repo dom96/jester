@@ -836,7 +836,7 @@ macro routes*(body: stmt): stmt {.immediate.} =
   matchBody.add caseStmt
 
   var matchProc = parseStmt("proc match(request: Request," &
-    "response: jester.Response): Future[bool] {.async.} = discard")
+    "response: jester.Response): Future[bool] {.async, gcsafe.} = discard")
   matchProc[0][6] = matchBody
   result.add(outsideStmts)
   result.add(matchProc)
