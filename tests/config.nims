@@ -1,0 +1,2 @@
+switch("path", "..")
+switch("path", ".")
