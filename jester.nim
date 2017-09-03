@@ -27,6 +27,7 @@ type
     mimes*: MimeDb
     port*: Port
     bindAddr*: string
+    reusePort*: bool
     errorFilter*: proc(e: ref Exception, res: var Response) {.closure, gcsafe.}
 
   MatchType* = enum
@@ -322,11 +323,12 @@ proc handleHTTPRequest(jes: Jester, req: asynchttpserver.Request): Future[void] 
                       req.body, req.hostname, req.reqMethod, req.headers)
 
 proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
-                  appName = "", bindAddr = ""): Settings =
+                  appName = "", bindAddr = "", reusePort = false): Settings =
   result = Settings(staticDir: staticDir,
                      appName: appName,
                      port: port,
-                     bindAddr: bindAddr)
+                     bindAddr: bindAddr,
+                     reusePort: reusePort)
 
 proc serve*(
     match:
@@ -338,7 +340,7 @@ proc serve*(
   jes.settings = settings
   jes.settings.mimes = newMimetypes()
   jes.matchProc = match
-  jes.httpServer = newAsyncHttpServer()
+  jes.httpServer = newAsyncHttpServer(reusePort=jes.settings.reusePort)
 
   # Ensure we have at least one logger enabled, defaulting to console.
   if logging.getHandlers().len == 0:
