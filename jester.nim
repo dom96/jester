@@ -362,8 +362,6 @@ template resp*(code: HttpCode,
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
   break route
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
 
 template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code
@@ -374,8 +372,6 @@ template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   response.data[2]["Content-Type"] = contentType
   response.data[3] = content
   break route
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
 
 template resp*(code: HttpCode, content: string,
                contentType = "text/html;charset=utf-8"): stmt =
@@ -387,8 +383,6 @@ template resp*(code: HttpCode, content: string,
   response.data[2]["Content-Type"] = contentType
   response.data[3] = content
   break route
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
 
 template body*(): expr =
   ## Gets the body of the request.
@@ -420,8 +414,6 @@ template redirect*(url: string): stmt =
   response.data[2]["Location"] = url
   response.data[3] = ""
   break route
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
 
 template pass*(): stmt =
   ## Skips this request handler.
@@ -429,15 +421,11 @@ template pass*(): stmt =
   ## If you want to stop this request from going further use ``halt``.
   response.data.action = TCActionPass
   break outerRoute
-  # The ``route`` macro will perform a transformation which ensures a
-  # call to this template behaves correctly.
 
 template cond*(condition: bool): stmt =
   ## If ``condition`` is ``False`` then ``pass`` will be called,
   ## i.e. this request handler will be skipped.
   if not condition: break outerRoute
-  # The ``route`` macro will perform a transformation which ensures a
-  # call to this template behaves correctly.
 
 template halt*(code: HttpCode,
                headers: varargs[tuple[key, val: string]],
@@ -448,8 +436,6 @@ template halt*(code: HttpCode,
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
   break route
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
 
 template halt*(): stmt =
   ## Halts the execution of this request immediately. Returns a 404.
