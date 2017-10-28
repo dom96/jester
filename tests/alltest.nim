@@ -2,6 +2,9 @@
 # MIT License - Look at license.txt for details.
 import jester, asyncdispatch, strutils, random, os, asyncnet, re
 
+template return200(): untyped =
+  resp Http200, "Templates now work!"
+
 settings:
   port = Port(5454)
   appName = "/foo"
@@ -100,5 +103,9 @@ routes:
     body.add "Received: "
     body.add($request.body)
     status = Http200
+
+  get "/template":
+    return200()
+    resp Http404, "Template not working"
 
 runForever()

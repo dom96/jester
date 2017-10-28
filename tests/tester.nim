@@ -34,3 +34,7 @@ test "regex":
 test "resp":
   let resp = waitFor client.get("http://localhost:" & $port & "/foo/resp")
   check (waitFor resp.body) == "This should be the response"
+
+test "template":
+  let resp = waitFor client.get("http://localhost:" & $port & "/foo/template")
+  check (waitFor resp.body) == "Templates now work!"

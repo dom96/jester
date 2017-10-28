@@ -361,8 +361,7 @@ template resp*(code: HttpCode,
   ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
+  break route
 
 template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   ## Sets ``content`` as the response; ``Http200`` as the status code
@@ -372,8 +371,7 @@ template resp*(content: string, contentType = "text/html;charset=utf-8"): stmt =
   response.data[1] = Http200
   response.data[2]["Content-Type"] = contentType
   response.data[3] = content
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
+  break route
 
 template resp*(code: HttpCode, content: string,
                contentType = "text/html;charset=utf-8"): stmt =
@@ -384,8 +382,7 @@ template resp*(code: HttpCode, content: string,
   response.data[1] = code
   response.data[2]["Content-Type"] = contentType
   response.data[3] = content
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
+  break route
 
 template body*(): expr =
   ## Gets the body of the request.
@@ -416,22 +413,19 @@ template redirect*(url: string): stmt =
   response.data[1] = Http303
   response.data[2]["Location"] = url
   response.data[3] = ""
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
+  break route
 
 template pass*(): stmt =
   ## Skips this request handler.
   ##
   ## If you want to stop this request from going further use ``halt``.
   response.data.action = TCActionPass
-  # The ``route`` macro will perform a transformation which ensures a
-  # call to this template behaves correctly.
+  break outerRoute
 
 template cond*(condition: bool): stmt =
   ## If ``condition`` is ``False`` then ``pass`` will be called,
   ## i.e. this request handler will be skipped.
-  # The ``route`` macro will perform a transformation which ensures a
-  # call to this template behaves correctly.
+  if not condition: break outerRoute
 
 template halt*(code: HttpCode,
                headers: varargs[tuple[key, val: string]],
@@ -441,8 +435,7 @@ template halt*(code: HttpCode,
   ## route.
   bind TCActionSend, newStringTable
   response.data = (TCActionSend, code, headers.newStringTable, content)
-  # The ``route`` macro will add a 'return' after the invokation of this
-  # template.
+  break route
 
 template halt*(): stmt =
   ## Halts the execution of this request immediately. Returns a 404.
@@ -622,31 +615,6 @@ template declareSettings(): stmt {.immediate, dirty.} =
   when not declaredInScope(settings):
     var settings = newSettings()
 
-proc transformRouteBody(node, thisRouteSym: NimNode): NimNode {.compiletime.} =
-  result = node
-  case node.kind
-  of nnkCall, nnkCommand:
-    if node[0].kind == nnkIdent:
-      case node[0].ident.`$`.normalize
-      of "pass":
-        result = newStmtList()
-        result.add node
-        result.add newNimNode(nnkBreakStmt).add(thisRouteSym)
-      of "redirect", "halt", "resp":
-        result = newStmtList()
-        result.add node
-        result.add newNimNode(nnkReturnStmt).add(newIdentNode("true"))
-      of "cond":
-        var cond = newNimNode(nnkPrefix).add(newIdentNode("not"), node[1])
-        var condBody = newStmtList().add(getAst(pass()),
-            newNimNode(nnkBreakStmt).add(thisRouteSym))
-
-        result = newIfStmt((cond, condBody))
-      else: discard
-  else:
-    for i in 0 .. <node.len:
-      result[i] = transformRouteBody(node[i], thisRouteSym)
-
 proc createJesterPattern(body,
      patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
   var ctPattern = ctParsePattern(body[i][1].strVal)
@@ -678,7 +646,6 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
 
-  var thisRouteSym = genSym(nskLabel, "thisRoute")
   var patternMatchSym = genSym(nskLet, "patternMatchRet")
 
   # Only used for Regex patterns.
@@ -707,10 +674,16 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
         newDotExpr(newIdentNode"request", newIdentNode"matches"),
         reMatchesSym)
 
-  ifStmtBody.add body[i][2].skipDo().transformRouteBody(thisRouteSym)
+  ifStmtBody.add body[i][2].skipDo()
   var checkActionIf = parseExpr("if checkAction(response): return true")
   checkActionIf[0][0][0] = bindSym"checkAction"
-  ifStmtBody.add checkActionIf
+  #ifStmtBody.add checkActionIf
+  
+  # -> block route: <ifStmtBody>; <checkActionIf>
+  var innerBlockStmt = newStmtList(
+    newNimNode(nnkBlockStmt).add(newIdentNode(!"route"), ifStmtBody),
+    checkActionIf
+  )
 
   let ifCond =
     case patternType
@@ -719,12 +692,12 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
     of MRegex:
       infix(patternMatchSym, "!=", newIntLitNode(-1))
 
-  # -> if <patternMatchSym>.matched: <ifStmtBody>
-  var ifStmt = newIfStmt((ifCond, ifStmtBody))
+  # -> if <patternMatchSym>.matched: <innerBlockStmt>
+  var ifStmt = newIfStmt((ifCond, innerBlockStmt))
 
   # -> block <thisRouteSym>: <ifStmt>
   var blockStmt = newNimNode(nnkBlockStmt).add(
-    thisRouteSym, ifStmt)
+    newIdentNode(!"outerRoute"), ifStmt)
   dest.add blockStmt
 
 macro routes*(body: stmt): stmt {.immediate.} =
