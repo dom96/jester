@@ -523,8 +523,7 @@ template uri*(address = "", absolute = true, addScriptName = true): expr =
 
 proc daysForward*(days: int): TimeInfo =
   ## Returns a TimeInfo object referring to the current time plus ``days``.
-  var tim = Time(int(getTime()) + days * (60 * 60 * 24))
-  return tim.getGMTime()
+  return getTime().getGMTime + initInterval(days = days)
 
 template setCookie*(name, value: string, expires: TimeInfo): stmt =
   ## Creates a cookie which stores ``value`` under ``name``.
