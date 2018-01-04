@@ -357,6 +357,19 @@ proc serve*(
     logging.info("Jester is making jokes at http://localhost:$1$2" %
                  [$jes.settings.port, jes.settings.appName])
 
+template serveAll*(
+    matchers: untyped,
+    settings: Settings = newSettings()): untyped =
+  serve((
+    proc (request: Request, response: Response): Future[bool] {.async.} =
+      var allMatchers = matchers
+      result = false
+      for matcher in allMatchers:
+        result = await matcher(request, response)
+        if result: break
+    )
+    , settings)
+
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, value: string]],
                content: string): stmt =
@@ -701,15 +714,7 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
     newIdentNode(!"outerRoute"), ifStmt)
   dest.add blockStmt
 
-macro routes*(body: stmt): stmt {.immediate.} =
-  #echo(treeRepr(body))
-  result = newStmtList()
-
-  # -> declareSettings()
-  result.add newCall(bindSym"declareSettings")
-
-  var outsideStmts = newStmtList()
-
+macro matcher*(name: untyped, body: stmt): untyped {.immediate.} =
   var matchBody = newNimNode(nnkStmtList)
   matchBody.add newCall(bindSym"setDefaultResp")
   var caseStmt = newNimNode(nnkCaseStmt)
@@ -755,10 +760,8 @@ macro routes*(body: stmt): stmt {.immediate.} =
           discard
       else:
         discard
-    of nnkCommentStmt:
-      discard
     else:
-      outsideStmts.add(body[i])
+      discard
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
@@ -807,11 +810,26 @@ macro routes*(body: stmt): stmt {.immediate.} =
 
   matchBody.add caseStmt
 
-  var matchProc = parseStmt("proc match(request: Request," &
-    "response: jester.Response): Future[bool] {.async, gcsafe.} = discard")
-  matchProc[0][6] = matchBody
-  result.add(outsideStmts)
-  result.add(matchProc)
+  let
+    request = newIdentNode(!"request")
+    response = newIdentNode(!"response")
+
+  result = quote do:
+    proc `name`(`request`: Request, `response`: jester.Response): Future[bool] {.async, gcsafe.} =
+      `matchBody`
+  #echo result.toStrLit
+
+macro routes*(body: stmt): stmt {.immediate.} =
+  #echo(treeRepr(body))
+  result = newStmtList()
+
+  # -> declareSettings()
+  result.add newCall(bindSym"declareSettings")
+
+  #var outsideStmts = newStmtList()
+
+  #result.add(outsideStmts)
+  result.add(getAst(matcher(newIdentNode(!"match"), body)))
 
   result.add parseExpr("jester.serve(match, settings)")
   #echo toStrLit(result)
