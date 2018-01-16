@@ -21,7 +21,7 @@ proc parseUrlQuery*(query: string, result: var StringTableRef) =
     inc(i) # Skip &
     result[decodeUrl(key)] = decodeUrl(val)
 
-template parseContentDisposition(): stmt =
+template parseContentDisposition(): typed =
   var hCount = 0
   while hCount < hValue.len()-1:
     var key = ""

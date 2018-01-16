@@ -15,7 +15,7 @@ type
 proc parsePattern*(pattern: string): Pattern =
   result = @[]
   template addNode(result: var Pattern, theT: NodeType, theText: string,
-                   isOptional: bool): stmt =
+                   isOptional: bool): typed =
     block:
       var newNode: Node
       newNode.typ = theT
