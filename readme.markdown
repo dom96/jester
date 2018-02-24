@@ -18,8 +18,10 @@ runForever()
 
 Compile and run with:
 
+```
+  cd tests/example
   nim c -r example.nim
-
+```
 
 View at: [localhost:5000](http://localhost:5000)
 
