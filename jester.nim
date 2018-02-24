@@ -254,7 +254,7 @@ proc defaultErrorFilter(e: ref Exception, res: var Response) =
   res.data.content = routeException(error.replace("\n", "<br/>\n"), jesterVer)
   res.data.code = Http502
 
-template setMatches(req: untyped) = req.matches = matches # Workaround.
+# template setMatches(req: untyped) = req.matches = matches # Workaround.
 proc handleRequest(jes: Jester, client: AsyncSocket,
                    path, query, body, ip: string, reqMethod: HttpMethod,
                    headers: HttpHeaders) {.async.} =

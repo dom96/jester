@@ -1,6 +1,7 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import parseutils, strtabs, strutils, tables
+import unicode
 from cgi import decodeUrl
 
 type
@@ -65,7 +66,8 @@ proc parseMultiPart*(body: string, boundary: string): MultiData =
       i += body.skipWhitespace(i)
       var hValue = ""
       i += body.parseUntil(hValue, {'\c', '\L'}, i)
-      if hName.toLower == "content-disposition":
+      # if hName.tolower == "content-disposition":
+      if unicode.toLower(hName) == "content-disposition":
         parseContentDisposition()
       newPart[0][hName] = hValue
       i += body.skip("\c\L", i) # Skip *one* \c\L
