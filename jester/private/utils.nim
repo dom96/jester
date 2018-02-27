@@ -65,7 +65,7 @@ proc parseMultiPart*(body: string, boundary: string): MultiData =
       i += body.skipWhitespace(i)
       var hValue = ""
       i += body.parseUntil(hValue, {'\c', '\L'}, i)
-      if hName.toLower == "content-disposition":
+      if toLowerAscii(hName) == "content-disposition":
         parseContentDisposition()
       newPart[0][hName] = hValue
       i += body.skip("\c\L", i) # Skip *one* \c\L

@@ -1,6 +1,6 @@
 import jester, asyncdispatch, asyncnet
 
-proc match(request: PRequest, response: PResponse): Future[bool] {.async.} =
+proc match(request: Request, response: Response): Future[bool] {.async.} =
   result = true
   case request.pathInfo
   of "/":
