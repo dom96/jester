@@ -520,11 +520,11 @@ template uri*(address = "", absolute = true, addScriptName = true): untyped =
   ## Convenience template which can be used in a route.
   request.makeUri(address, absolute, addScriptName)
 
-proc daysForward*(days: int): TimeInfo =
-  ## Returns a TimeInfo object referring to the current time plus ``days``.
-  return getTime().getGMTime + initInterval(days = days)
+proc daysForward*(days: int): DateTime =
+  ## Returns a DateTime object referring to the current time plus ``days``.
+  return getTime().utc + initTimeInterval(days = days)
 
-template setCookie*(name, value: string, expires: TimeInfo): typed =
+template setCookie*(name, value: string, expires: DateTime): typed =
   ## Creates a cookie which stores ``value`` under ``name``.
   bind setCookie
   if response.data[2].hasKey("Set-Cookie"):
