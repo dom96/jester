@@ -10,5 +10,10 @@ skipDirs = @["tests"]
 
 # Deps
 
-requires "nim >= 0.16.0"
+requires "nim >= 0.18.0"
 
+# For tests
+requires "asynctools"
+
+task test, "Runs the test suite.":
+  exec "nimble c -r tests/tester"
