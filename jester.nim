@@ -459,7 +459,7 @@ template attachment*(filename = ""): typed =
   response.data[2]["Content-Disposition"] = "attachment"
   if filename != "":
     var param = "; filename=\"" & extractFilename(filename) & "\""
-    response.data[2].mget("Content-Disposition").add(param)
+    response.data[2]["Content-Disposition"].add(param)
     let ext = splitFile(filename).ext
     if not response.data[2].hasKey("Content-Type") and ext != "":
       response.data[2]["Content-Type"] = getMimetype(request.settings.mimes, ext)
@@ -529,7 +529,7 @@ template setCookie*(name, value: string, expires: DateTime): typed =
   bind setCookie
   if response.data[2].hasKey("Set-Cookie"):
     # A wee bit of a hack here. Multiple Set-Cookie headers are allowed.
-    response.data[2].mget("Set-Cookie").add("\c\L" &
+    response.data[2]["Set-Cookie"].add("\c\L" &
         setCookie(name, value, expires, noName = false))
   else:
     response.data[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
