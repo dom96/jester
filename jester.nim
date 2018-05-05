@@ -537,7 +537,7 @@ template uri*(address = "", absolute = true, addScriptName = true): untyped =
 
 proc daysForward*(days: int): DateTime =
   ## Returns a DateTime object referring to the current time plus ``days``.
-  return getTime().utc + initTimeInterval(days = days)
+  return getTime().utc + initInterval(days = days)
 
 template setCookie*(name, value: string, expires: DateTime): typed =
   ## Creates a cookie which stores ``value`` under ``name``.
@@ -650,10 +650,10 @@ proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
     return MSpecial
   of nnkCallStrLit:
     expectKind(pattern[0], nnkIdent)
-    case ($pattern[0].ident).normalize
+    case ($pattern[0]).normalize
     of "re": return MRegex
     else:
-      macros.error("Invalid pattern type: " & $pattern[0].ident)
+      macros.error("Invalid pattern type: " & $pattern[0])
   else:
     macros.error("Unexpected node kind: " & $pattern.kind)
 
@@ -696,7 +696,7 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
   
   # -> block route: <ifStmtBody>; <checkActionIf>
   var innerBlockStmt = newStmtList(
-    newNimNode(nnkBlockStmt).add(newIdentNode(!"route"), ifStmtBody),
+    newNimNode(nnkBlockStmt).add(newIdentNode("route"), ifStmtBody),
     checkActionIf
   )
 
@@ -712,7 +712,7 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
 
   # -> block <thisRouteSym>: <ifStmt>
   var blockStmt = newNimNode(nnkBlockStmt).add(
-    newIdentNode(!"outerRoute"), ifStmt)
+    newIdentNode("outerRoute"), ifStmt)
   dest.add blockStmt
 
 macro routes*(body: untyped): typed =
@@ -742,7 +742,7 @@ macro routes*(body: untyped): typed =
   for i in 0 .. <body.len:
     case body[i].kind
     of nnkCommand:
-      let cmdName = body[i][0].ident.`$`.normalize
+      let cmdName = body[i][0].`$`.normalize
       case cmdName
       of "get", "post", "put", "delete", "head", "options", "trace", "connect",
          "patch":
