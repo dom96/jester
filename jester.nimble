@@ -16,4 +16,4 @@ requires "nim >= 0.18.0"
 requires "asynctools"
 
 task test, "Runs the test suite.":
-  exec "nimble c -r tests/tester"
+  exec "nimble c -y -r tests/tester"
