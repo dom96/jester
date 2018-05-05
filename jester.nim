@@ -152,21 +152,26 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: HttpMethod,
   result.body = body
   result.appName = jes.settings.appName
   result.headers = headers
-  if result.headers.getOrDefault("Content-Type").startswith("application/x-www-form-urlencoded"):
+
+  let contentType = result.headers.getOrDefault("Content-Type")
+  if contentType.startswith("application/x-www-form-urlencoded"):
     try:
       parseUrlQuery(body, result.params)
     except:
       logging.warn("Could not parse URL query.")
-  elif (let ct = result.headers.getOrDefault("Content-Type"); ct.startsWith("multipart/form-data")):
-    result.formData = parseMPFD(ct, body)
+  elif contentType.startsWith("multipart/form-data"):
+    result.formData = parseMPFD(contentType, body)
+
   result.ip = ip
   if result.headers.hasKey("REMOTE_ADDR"):
     result.ip = result.headers["REMOTE_ADDR"]
   if result.headers.hasKey("x-forwarded-for"):
     result.ip = result.headers["x-forwarded-for"]
+
   result.host = result.headers.getOrDefault("HOST")
   result.pathInfo = path.stripAppName(result.appName)
   result.path = path
+
   result.secure = false
   if result.headers.hasKey("x-forwarded-proto"):
     let proto = result.headers["x-forwarded-proto"]
@@ -186,6 +191,7 @@ proc createReq(jes: Jester, path, body, ip: string, reqMeth: HttpMethod,
   if (let cookie = result.headers.getOrDefault("Cookie"); cookie != ""):
     result.cookies = parseCookies(cookie)
   else: result.cookies = newStringTable()
+
   result.reqMeth = reqMeth
   result.settings = jes.settings
 
@@ -241,8 +247,10 @@ proc sendStaticIfExists(resp: Response, req: Request, jes: Jester,
       return
 
   # If we get to here then no match could be found.
-  await resp.client.statusContent($Http404, error($Http404, jesterVer),
-                       {"Content-Type": "text/html;charset=utf-8"}.newStringTable)
+  await resp.client.statusContent(
+    $Http404, error($Http404, jesterVer),
+    {"Content-Type": "text/html;charset=utf-8"}.newStringTable
+  )
 
 proc defaultErrorFilter(e: ref Exception, res: var Response) =
   let traceback = getStackTrace(e)
@@ -253,6 +261,17 @@ proc defaultErrorFilter(e: ref Exception, res: var Response) =
   res.data.headers = {"Content-Type": "text/html;charset=utf-8"}.newStringTable
   res.data.content = routeException(error.replace("\n", "<br/>\n"), jesterVer)
   res.data.code = Http502
+
+proc handleError(jes: Jester, client: AsyncSocket, error: ref Exception,
+                 resp: var Response): Future[void] =
+  if jes.settings.errorFilter.isNil:
+    defaultErrorFilter(error, resp)
+  else:
+    jes.settings.errorFilter(error, resp)
+
+  return client.statusContent(
+    $resp.data.code, resp.data.content, resp.data.headers
+  )
 
 proc handleRequest(jes: Jester, client: AsyncSocket,
                    path, query, body, ip: string, reqMethod: HttpMethod,
@@ -265,19 +284,22 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
     logging.warn("Incorrect query. Got: $1" % [query])
 
   var matched = false
+  # Workaround for no 'await' in 'except' body
+  var failedWithError: ref Exception
 
   var req: Request
+  var resp = Response(client: client)
   try:
     req = createReq(jes, path, body, ip, reqMethod, headers, params)
-  except ValueError:
-    client.close()
-    return
+  except ValueError as error:
+    failedWithError = error
 
-  var resp = Response(client: client)
+  if not failedWithError.isNil:
+    await handleError(jes, client, failedWithError, resp)
+    return
 
   logging.debug("$1 $2" % [$reqMethod, req.pathInfo])
 
-  var failed = false # Workaround for no 'await' in 'except' body
   var matchProcFut: Future[bool]
   try:
     matchProcFut = jes.matchProc(req, resp)
@@ -285,17 +307,10 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   except:
     # Handle any errors by showing them in the browser.
     # TODO: Improve the look of this.
-    failed = true
+    failedWithError = matchProcFut.error
 
-  if failed:
-    if jes.settings.errorFilter.isNil:
-      defaultErrorFilter(matchProcFut.error, resp)
-    else:
-      jes.settings.errorFilter(matchProcFut.error, resp)
-
-    await client.statusContent($resp.data.code, resp.data.content,
-        resp.data.headers)
-
+  if not failedWithError.isNil:
+    await handleError(jes, client, failedWithError, resp)
     return
 
   if matched:
