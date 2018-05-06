@@ -1,12 +1,25 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import parseutils, strtabs, strutils, tables
+import parseutils, strtabs, strutils, tables, net, mimetypes
 from cgi import decodeUrl
+
+const
+  useHttpBeast* = not defined(windows) and not defined(useStdLib)
 
 type
   MultiData* = OrderedTable[string, tuple[fields: StringTableRef, body: string]]
 
-proc parseUrlQuery*(query: string, result: var StringTableRef) =
+  Settings* = ref object
+    staticDir*: string # By default ./public
+    appName*: string
+    mimes*: MimeDb
+    port*: Port
+    bindAddr*: string
+    reusePort*: bool
+    # errorFilter*: proc(e: ref Exception, res: var Response) {.closure, gcsafe.}
+
+proc parseUrlQuery*(query: string, result: var Table[string, string])
+    {.deprecated: "use stdlib".} =
   var i = 0
   i = query.skip("?")
   while i < query.len()-1:
@@ -89,6 +102,27 @@ proc parseMPFD*(contentType: string, body: string): MultiData =
   var boundaryEqIndex = contentType.find("boundary=")+9
   var boundary = contentType.substr(boundaryEqIndex, contentType.len()-1)
   return parseMultiPart(body, boundary)
+
+proc parseCookies*(s: string): Table[string, string] =
+  ## parses cookies into a string table.
+  ##
+  ## The proc is meant to parse the Cookie header set by a client, not the
+  ## "Set-Cookie" header set by servers.
+
+  result = initTable[string, string]()
+  var i = 0
+  while true:
+    while s[i] == ' ' or s[i] == '\t': inc(i)
+    var keystart = i
+    while s[i] != '=' and s[i] != '\0': inc(i)
+    var keyend = i-1
+    if s[i] == '\0': break
+    inc(i) # skip '='
+    var valstart = i
+    while s[i] != ';' and s[i] != '\0': inc(i)
+    result[substr(s, keystart, keyend)] = substr(s, valstart, i-1)
+    if s[i] == '\0': break
+    inc(i) # skip ';'
 
 when not declared(tables.getOrDefault):
   template getOrDefault*(tab, key): untyped = tab[key]

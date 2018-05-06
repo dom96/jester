@@ -60,12 +60,12 @@ routes:
     proc blah = raise newException(ESynch, "BLAH BLAH BLAH")
     blah()
 
-  get "/live":
-    await response.sendHeaders()
-    for i in 0 .. 10:
-      await response.send("The number is: " & $i & "</br>")
-      await sleepAsync(1000)
-    response.client.close()
+  # get "/live":
+  #   await response.sendHeaders()
+  #   for i in 0 .. 10:
+  #     await response.send("The number is: " & $i & "</br>")
+  #     await sleepAsync(1000)
+  #   response.client.close()
 
   # curl -v -F file='blah' http://dom96.co.cc:5000
   # curl -X POST -d 'test=56' localhost:5000/post
@@ -107,5 +107,3 @@ routes:
   get "/template":
     return200()
     resp Http404, "Template not working"
-
-runForever()

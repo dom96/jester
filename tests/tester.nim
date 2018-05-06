@@ -35,12 +35,19 @@ proc startServer(file: string) {.async.} =
   asyncCheck readLoop(serverProcess)
 
   # Wait until server responds:
-  var client = newAsyncHttpClient()
+
   for i in 0..10:
+    var client = newAsyncHttpClient()
+    echo("Getting ", address)
     let fut = client.get(address)
-    yield fut
-    if not fut.failed: return
+    yield fut or sleepAsync(3000)
+    if not fut.finished:
+      echo("Timed out")
+    elif not fut.failed:
+      echo("Server started!")
+      return
     else: echo fut.error.msg
+    client.close()
     await sleepAsync(1000)
 
   doAssert false, "Failed to start server."

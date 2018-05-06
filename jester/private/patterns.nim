@@ -1,6 +1,6 @@
-# Copyright (C) 2012 Dominik Picheta
+# Copyright (C) 2012-2018 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import parseutils, strtabs
+import parseutils, tables
 type
   NodeType* = enum
     NodeText, NodeField
@@ -79,11 +79,12 @@ proc check(n: Node, s: string, i: int): bool =
   if cutTo > s.len-1: return false
   return s.substr(i, cutTo) == n.text
 
-proc match*(pattern: Pattern, s: string): tuple[matched: bool, params: StringTableRef] =
+proc match*(pattern: Pattern, s: string):
+      tuple[matched: bool, params: Table[string, string]] =
   var i = 0 # Location in ``s``.
 
   result.matched = true
-  result.params = {:}.newStringTable()
+  result.params = initTable[string, string]()
   
   for ncount, node in pattern:
     case node.typ
