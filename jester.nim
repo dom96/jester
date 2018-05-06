@@ -283,10 +283,7 @@ proc serve*(
     asyncCheck jes.httpServer.serve(
       jes.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
-        result = handleRequest(
-          jes, req.client, req.url.path, req.url.query,
-          req.body, req.hostname, req.reqMethod, req.headers
-        ),
+        result = handleRequest(jes, req),
       settings.bindAddr)
     runForever()
 
@@ -760,7 +757,7 @@ macro routes*(body: untyped): typed =
   result.add(matchProc)
 
   result.add parseExpr("jester.serve(match, settings)")
-  echo toStrLit(result)
+  # echo toStrLit(result)
   #echo treeRepr(result)
 
 macro settings*(body: untyped): typed =

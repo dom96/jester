@@ -19,7 +19,7 @@ proc readLoop(process: AsyncProcess) {.async.} =
 
   echo("Process terminated")
 
-proc startServer(file: string) {.async.} =
+proc startServer(file: string, useStdLib: bool) {.async.} =
   var file = "tests" / file
   if not serverProcess.isNil and serverProcess.running:
     serverProcess.terminate()
@@ -29,7 +29,12 @@ proc startServer(file: string) {.async.} =
 
   # The nim process doesn't behave well when using `-r`, if we kill it, the
   # process continues running...
-  doAssert execCmd("nimble c -y " & file) == QuitSuccess
+  let stdLibFlag =
+    if useStdLib:
+      " -d:useStdLib "
+    else:
+      ""
+  doAssert execCmd("nimble c --hints:off -y " & stdLibFlag & file) == QuitSuccess
 
   serverProcess = startProcess(file.changeFileExt(ExeExt))
   asyncCheck readLoop(serverProcess)
@@ -52,8 +57,8 @@ proc startServer(file: string) {.async.} =
 
   doAssert false, "Failed to start server."
 
-proc allTest() =
-  waitFor startServer("alltest.nim")
+proc allTest(useStdLib: bool) =
+  waitFor startServer("alltest.nim", useStdLib)
   var client = newAsyncHttpClient(maxRedirects = 0)
 
   test "can access root":
@@ -91,6 +96,7 @@ proc allTest() =
 
 when isMainModule:
   try:
-    allTest()
+    allTest(useStdLib=false) # Test HttpBeast.
+    allTest(useStdLib=true)  # Test asynchttpserver.
   finally:
     doAssert execCmd("kill -15 " & $serverProcess.processID()) == QuitSuccess
