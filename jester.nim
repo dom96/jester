@@ -41,7 +41,7 @@ type
 
 
 
-const jesterVer = "0.1.0"
+const jesterVer = "0.3.0"
 
 proc createHeaders(status: HttpCode, headers: HttpHeaders): string =
   result = ""
