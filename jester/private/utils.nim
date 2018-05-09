@@ -112,16 +112,16 @@ proc parseCookies*(s: string): Table[string, string] =
   result = initTable[string, string]()
   var i = 0
   while true:
-    while s[i] == ' ' or s[i] == '\t': inc(i)
+    i += skipWhile(s, {' ', '\t'}, i)
     var keystart = i
-    while s[i] != '=' and s[i] != '\0': inc(i)
+    i += skipUntil(s, {'='}, i)
     var keyend = i-1
-    if s[i] == '\0': break
+    if i >= len(s): break
     inc(i) # skip '='
     var valstart = i
-    while s[i] != ';' and s[i] != '\0': inc(i)
+    i += skipUntil(s, {';'}, i)
     result[substr(s, keystart, keyend)] = substr(s, valstart, i-1)
-    if s[i] == '\0': break
+    if i >= len(s): break
     inc(i) # skip ';'
 
 when not declared(tables.getOrDefault):

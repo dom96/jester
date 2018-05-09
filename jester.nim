@@ -319,7 +319,7 @@ template resp*(code: HttpCode, content: string,
   result.matched = true
   break route
 
-template body*(): untyped =
+template body*: var string =
   ## Gets the body of the request.
   ##
   ## **Note:** It's usually a better idea to use the ``resp`` templates.
@@ -471,8 +471,9 @@ template setCookie*(name, value: string, expires: DateTime): typed =
   bind setCookie
   if result[2].hasKey("Set-Cookie"):
     # A wee bit of a hack here. Multiple Set-Cookie headers are allowed.
-    result[2]["Set-Cookie"].add("\c\L" &
-        setCookie(name, value, expires, noName = false))
+    var setCookieVal: string = result[2]["Set-Cookie"]
+    setCookieVal.add("\c\L" & setCookie(name, value, expires, noName = false))
+    result[2]["Set-Cookie"] = setCookieVal
   else:
     result[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
 
