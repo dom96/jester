@@ -4,8 +4,8 @@ import net, strtabs, re, tables, parseutils, os, strutils, uri,
        scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
        logging, httpcore, asyncfile
 
-import jester/private/[patterns, errorpages, utils]
-import jester/request
+import jester/private/[errorpages, utils]
+import jester/[request, patterns]
 
 from cgi import decodeData, decodeUrl, CgiError
 
