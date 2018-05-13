@@ -1,7 +1,7 @@
 # Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import net, strtabs, re, tables, parseutils, os, strutils, uri,
-       scgi, cookies, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
+       scgi, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
        logging, httpcore, asyncfile
 
 import jester/private/[errorpages, utils]
@@ -466,16 +466,20 @@ proc daysForward*(days: int): DateTime =
   ## Returns a DateTime object referring to the current time plus ``days``.
   return getTime().utc + initInterval(days = days)
 
-template setCookie*(name, value: string, expires: DateTime): typed =
+template setCookie*(name, value: string, expires=""): typed =
   ## Creates a cookie which stores ``value`` under ``name``.
-  bind setCookie
+  let newCookie = makeCookie(name, value, expires)
   if result[2].hasKey("Set-Cookie"):
     # A wee bit of a hack here. Multiple Set-Cookie headers are allowed.
     var setCookieVal: string = result[2]["Set-Cookie"]
-    setCookieVal.add("\c\L" & setCookie(name, value, expires, noName = false))
+    setCookieVal.add("\c\LSet-Cookie:" & newCookie)
     result[2]["Set-Cookie"] = setCookieVal
   else:
-    result[2]["Set-Cookie"] = setCookie(name, value, expires, noName = true)
+    result[2]["Set-Cookie"] = newCookie
+
+template setCookie*(name, value: string, expires: DateTime): typed =
+  ## Creates a cookie which stores ``value`` under ``name``.
+  setCookie(name, value, format(expires, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'"))
 
 proc normalizeUri*(uri: string): string =
   ## Remove any trailing ``/``.

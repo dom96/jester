@@ -124,6 +124,16 @@ proc parseCookies*(s: string): Table[string, string] =
     if i >= len(s): break
     inc(i) # skip ';'
 
+proc makeCookie*(key, value, expires: string, domain = "", path = "",
+                 secure = false, httpOnly = false): string =
+  result = ""
+  result.add key & "=" & value
+  if domain != "": result.add("; Domain=" & domain)
+  if path != "": result.add("; Path=" & path)
+  if expires != "": result.add("; Expires=" & expires)
+  if secure: result.add("; Secure")
+  if httpOnly: result.add("; HttpOnly")
+
 when not declared(tables.getOrDefault):
   template getOrDefault*(tab, key): untyped = tab[key]
 
