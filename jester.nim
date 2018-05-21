@@ -17,6 +17,8 @@ export NodeType # TODO: Couldn't bindsym this.
 export MultiData
 export HttpMethod
 
+export SameSite
+
 when useHttpBeast:
   import httpbeast except Settings, Request
   import options
@@ -466,8 +468,15 @@ proc daysForward*(days: int): DateTime =
   ## Returns a DateTime object referring to the current time plus ``days``.
   return getTime().utc + initInterval(days = days)
 
-template setCookie*(name, value: string, expires=""): typed =
+template setCookie*(name, value: string, expires="",
+                    sameSite: SameSite=Lax): typed =
   ## Creates a cookie which stores ``value`` under ``name``.
+  ##
+  ## The SameSite argument determines the level of CSRF protection that
+  ## you wish to adopt for this cookie. It's set to Lax by default which
+  ## should protect you from most vulnerabilities. Note that this is only
+  ## supported by some browsers:
+  ## https://caniuse.com/#feat=same-site-cookie-attribute
   let newCookie = makeCookie(name, value, expires)
   if result[2].hasKey("Set-Cookie"):
     # A wee bit of a hack here. Multiple Set-Cookie headers are allowed.
@@ -477,7 +486,8 @@ template setCookie*(name, value: string, expires=""): typed =
   else:
     result[2]["Set-Cookie"] = newCookie
 
-template setCookie*(name, value: string, expires: DateTime): typed =
+template setCookie*(name, value: string, expires: DateTime,
+                    sameSite: SameSite=Lax): typed =
   ## Creates a cookie which stores ``value`` under ``name``.
   setCookie(name, value, format(expires, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'"))
 

@@ -124,8 +124,13 @@ proc parseCookies*(s: string): Table[string, string] =
     if i >= len(s): break
     inc(i) # skip ';'
 
+type
+  SameSite* = enum
+    None, Lax, Strict
+
 proc makeCookie*(key, value, expires: string, domain = "", path = "",
-                 secure = false, httpOnly = false): string =
+                 secure = false, httpOnly = false,
+                 sameSite = Lax): string =
   result = ""
   result.add key & "=" & value
   if domain != "": result.add("; Domain=" & domain)
@@ -133,6 +138,8 @@ proc makeCookie*(key, value, expires: string, domain = "", path = "",
   if expires != "": result.add("; Expires=" & expires)
   if secure: result.add("; Secure")
   if httpOnly: result.add("; HttpOnly")
+  if sameSite != None:
+    result.add("; SameSite=" & $sameSite)
 
 when not declared(tables.getOrDefault):
   template getOrDefault*(tab, key): untyped = tab[key]
