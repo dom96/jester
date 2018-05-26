@@ -253,7 +253,7 @@ proc serve*(
   match: proc (request: Request): Future[ResponseData] {.gcsafe, closure.},
   settings: Settings = newSettings()
 ) =
-  ## Creates a new async http server or scgi server instance and registers
+  ## Creates a new async http server instance and registers
   ## it with the dispatcher.
   ##
   ## The event loop is executed by this function, so it will block forever.
@@ -320,27 +320,6 @@ template resp*(code: HttpCode, content: string,
   result[3] = content
   result.matched = true
   break route
-
-template body*: var string =
-  ## Gets the body of the request.
-  ##
-  ## **Note:** It's usually a better idea to use the ``resp`` templates.
-  result[3]
-  # Unfortunately I cannot explicitly set meta data like I can in `body=` :\
-  # This means that it is up to guessAction to infer this if the user adds
-  # something to the body for example.
-
-template headers*(): untyped =
-  ## Gets the headers of the request.
-  ##
-  ## **Note:** It's usually a better idea to use the ``resp`` templates.
-  result[2]
-
-template status*(): untyped =
-  ## Gets the status of the request.
-  ##
-  ## **Note:** It's usually a better idea to use the ``resp`` templates.
-  result[1]
 
 template redirect*(url: string): typed =
   ## Redirects to ``url``. Returns from this request handler immediately.
