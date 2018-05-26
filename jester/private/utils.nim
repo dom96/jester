@@ -1,6 +1,6 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import parseutils, strtabs, strutils, tables, net, mimetypes
+import parseutils, strtabs, strutils, tables, net, mimetypes, asyncdispatch
 from cgi import decodeUrl
 
 const
@@ -16,6 +16,7 @@ type
     port*: Port
     bindAddr*: string
     reusePort*: bool
+    errorHandler*: proc (fut: Future[void]) {.closure, gcsafe.}
     # errorFilter*: proc(e: ref Exception, res: var Response) {.closure, gcsafe.}
 
 proc parseUrlQuery*(query: string, result: var Table[string, string])

@@ -241,13 +241,19 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
-proc newSettings*(port = Port(5000), staticDir = getCurrentDir() / "public",
-                  appName = "", bindAddr = "", reusePort = false): Settings =
-  result = Settings(staticDir: staticDir,
-                     appName: appName,
-                     port: port,
-                     bindAddr: bindAddr,
-                     reusePort: reusePort)
+proc newSettings*(
+  port = Port(5000), staticDir = getCurrentDir() / "public",
+  appName = "", bindAddr = "", reusePort = false,
+  errorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
+): Settings =
+  result = Settings(
+    staticDir: staticDir,
+    appName: appName,
+    port: port,
+    bindAddr: bindAddr,
+    reusePort: reusePort,
+    errorHandler: errorHandler
+  )
 
 proc serve*(
   match: proc (request: Request): Future[ResponseData] {.gcsafe, closure.},
@@ -282,11 +288,15 @@ proc serve*(
     )
   else:
     jes.httpServer = newAsyncHttpServer(reusePort=jes.settings.reusePort)
-    asyncCheck jes.httpServer.serve(
+    let serveFut = jes.httpServer.serve(
       jes.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
         result = handleRequest(jes, req),
       settings.bindAddr)
+    if not settings.errorHandler.isNil:
+      serveFut.callback = settings.errorHandler
+    else:
+      asyncCheck serveFut
     runForever()
 
 template resp*(code: HttpCode,
