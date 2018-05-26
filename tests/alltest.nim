@@ -71,12 +71,13 @@ routes:
   # curl -X POST -d 'test=56' localhost:5000/post
 
   post "/post":
+    var body = ""
     body.add "Received: <br/>"
     body.add($request.formData)
     body.add "<br/>\n"
     body.add($request.params)
 
-    status = Http200
+    resp Http200, body
 
   get "/post":
     resp """
@@ -100,10 +101,14 @@ routes:
     resp request.matches[0]
 
   patch "/patch":
+    var body = ""
     body.add "Received: "
     body.add($request.body)
-    status = Http200
+    resp Http200, body
 
   get "/template":
     return200()
     resp Http404, "Template not working"
+
+  get "/nil":
+    resp nil

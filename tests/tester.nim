@@ -67,6 +67,12 @@ proc allTest(useStdLib: bool) =
     check resp.status.startsWith("200")
     check (waitFor resp.body) == "Hello World"
 
+  test "/nil":
+    # Issue #139
+    let resp = waitFor client.get(address & "/foo/nil")
+    check resp.status.startsWith("200")
+    check (waitFor resp.body) == ""
+
   test "/halt":
     let resp = waitFor client.get(address & "/foo/halt")
     check resp.status.startsWith("502")
@@ -93,6 +99,7 @@ proc allTest(useStdLib: bool) =
   test "template":
     let resp = waitFor client.get(address & "/foo/template")
     check (waitFor resp.body) == "Templates now work!"
+
 
 when isMainModule:
   try:
