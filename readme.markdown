@@ -3,9 +3,10 @@
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly
 creating web applications in Nim.
 
-**Note:** Jester requires Nim version 0.15.0.
+**Note:** You're advised to use Nim devel with Jester, but 0.18.0 should also
+          work.
 
-```nimrod
+```nim
 # example.nim
 import jester, asyncdispatch, htmlgen
 
@@ -27,7 +28,7 @@ View at: [localhost:5000](http://localhost:5000)
 
 ## Routes
 
-```nimrod
+```nim
 routes:
   get "/":
     # do something here.
@@ -42,7 +43,7 @@ The route path may contain a special pattern or just a static string. Special
 patterns are almost identical to Sinatra's, the only real difference is the
 use of ``@`` instead of the ``:``.
 
-```nimrod
+```nim
 get "/hello/@name":
   # This matches "/hello/fred" and "/hello/bob".
   # In the route ``@"name"`` will be either "fred" or "bob".
@@ -55,7 +56,7 @@ wildcard patterns.
 
 You can use the '?' character to signify optional path parts.
 
-```nimrod
+```nim
 get "/hello/@name?":
   # This will match what the previous code example matches but will also match
   # "/hello/".
@@ -74,7 +75,7 @@ not match "/hello" if the leading '/' is not made optional.
 Regex can also be used as a route pattern. The subpattern captures will be
 placed in ``request.matches`` when a route is matched. For example:
 
-```nimrod
+```nim
 get re"^\/([0-9]{2})\.html$":
   resp request.matches[0]
 ```
@@ -86,7 +87,7 @@ This will match URLs of the form ``/15.html``. In this case
 
 Jester supports conditions, however they are limited to a simple ``cond`` template.
 
-```nimrod
+```nim
 routes:
   get "/@name":
     cond @"name" != "daniel"
@@ -135,7 +136,7 @@ Unix/Linux you can ensure this with ``chmod o+r ./public/css/style.css``.
 
 Cookies can be set using the ``setCookie`` function.
 
-```nimrod
+```nim
 get "/":
   # Set a cookie "test:value" and make it expire in 5 days.
   setCookie("test", @"value", daysForward(5))
@@ -148,7 +149,7 @@ They can then be accessed from the ``request.cookies`` PStringTable.
 The request object holds all the information about the current request.
 You can access it from a route using the ``request`` variable. It is defined as:
 
-```nimrod
+```nim
 PRequest* = ref object
   params*: StringTableRef       ## Parameters from the pattern, but also the
                                 ## query string.
@@ -181,7 +182,7 @@ PRequest* = ref object
 
 The code for this is pretty similar to the code for Sinatra given here: http://help.github.com/post-receive-hooks/
 
-```nimrod
+```nim
 import jester, asyncdispatch, json
 
 routes:
@@ -194,7 +195,7 @@ runForever()
 
 ### Demo webapp
 
-```nimrod
+```nim
 import jester, asyncdispatch, json
 import httpcore
 
