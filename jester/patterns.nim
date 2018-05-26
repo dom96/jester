@@ -85,7 +85,7 @@ proc match*(pattern: Pattern, s: string):
 
   result.matched = true
   result.params = initTable[string, string]()
-  
+
   for ncount, node in pattern:
     case node.typ
     of NodeText:
@@ -109,9 +109,8 @@ proc match*(pattern: Pattern, s: string):
         stopChar = nextTxtNode.text[0]
       var matchNamed = ""
       i += s.parseUntil(matchNamed, stopChar, i)
-      if matchNamed != "":
-        result.params[node.text] = matchNamed
-      elif matchNamed == "" and not node.optional:
+      result.params[node.text] = matchNamed
+      if matchNamed == "" and not node.optional:
         result.matched = false
         return
 
@@ -127,7 +126,7 @@ when isMainModule:
   doAssert(match(f, "/show/asd/test//").matched)
   doAssert(not match(f, "/show/asd/asd/test/jjj/").matched)
   doAssert(match(f, "/show/@łę¶ŧ←/test/asd/").params["id"] == "@łę¶ŧ←")
-  
+
   let f2 = parsePattern("/test42/somefile.?@ext?/?")
   doAssert(match(f2, "/test42/somefile/").params["ext"] == "")
   doAssert(match(f2, "/test42/somefile.txt").params["ext"] == "txt")
