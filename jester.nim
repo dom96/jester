@@ -383,9 +383,8 @@ template halt*(code: HttpCode, content: string): typed =
   halt(code, {"Content-Type": "text/html;charset=utf-8"}, content)
 
 template attachment*(filename = ""): typed =
-  ## Creates an attachment out of ``filename``. Once the route exits,
-  ## ``filename`` will be sent to the person making the request and web browsers
-  ## will be hinted to open their Save As dialog box.
+  ## Instructs the browser that the response should be stored on disk
+  ## rather than displayed in the browser.
   var disposition = "attachment"
   if filename != "":
     disposition.add("; filename=\"" & extractFilename(filename) & "\"")
