@@ -26,11 +26,13 @@ else:
   import asynchttpserver except Request
 
 type
-  Jester = object
+  MatchProc* = proc (request: Request): Future[ResponseData] {.gcsafe, closure.}
+
+  Jester* = object
     when not useHttpBeast:
       httpServer*: AsyncHttpServer
     settings: Settings
-    matchProc: proc (request: Request): Future[ResponseData] {.gcsafe, closure.}
+    matchers: seq[MatchProc]
 
   MatchType* = enum
     MRegex, MSpecial
@@ -195,27 +197,36 @@ proc handleError(jes: Jester, error: ref Exception,
   # else:
   #   jes.settings.errorFilter(error, resp)
 
+proc dispatch(
+  self: Jester,
+  req: Request
+): Future[ResponseData] {.async.} =
+  for matcher in self.matchers:
+    let data = await matcher(req)
+    if data.matched:
+      return data
+
 proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
   var req = initRequest(httpReq, jes.settings)
 
-  var matchProcFut: Future[ResponseData]
+  var dispatchFut: Future[ResponseData]
   var respData: ResponseData
 
   # TODO: Fix this messy error handling once 'yield' in try stmt lands.
   try:
     logging.debug("$1 $2" % [$req.reqMethod, req.pathInfo])
-    matchProcFut = jes.matchProc(req)
+    dispatchFut = jes.dispatch(req)
   except:
     handleError(jes, getCurrentException(), respData)
 
-  if not matchProcFut.isNil:
-    yield matchProcFut
-    if matchProcFut.failed:
+  if not dispatchFut.isNil:
+    yield dispatchFut
+    if dispatchFut.failed:
       # Handle any errors by showing them in the browser.
       # TODO: Improve the look of this.
-      handleError(jes, matchProcFut.error, respData)
+      handleError(jes, dispatchFut.error, respData)
     else:
-      respData = matchProcFut.read()
+      respData = dispatchFut.read()
 
   if respData.matched:
     if respData.action == TCActionSend:
@@ -255,46 +266,58 @@ proc newSettings*(
     errorHandler: errorHandler
   )
 
-proc serve*(
-  match: proc (request: Request): Future[ResponseData] {.gcsafe, closure.},
+proc register*(self: var Jester, matcher: MatchProc) =
+  ## Adds the specified matcher procedure to the specified Jester instance.
+  self.matchers.add(matcher)
+
+proc initJester*(
+  matcher: proc (request: Request): Future[ResponseData] {.gcsafe, closure.},
   settings: Settings = newSettings()
+): Jester =
+  result.settings = settings
+  result.settings.mimes = newMimetypes()
+  result.matchers = @[]
+  result.register(matcher)
+
+proc serve*(
+  self: var Jester
 ) =
   ## Creates a new async http server instance and registers
   ## it with the dispatcher.
   ##
   ## The event loop is executed by this function, so it will block forever.
-  var jes: Jester
-  jes.settings = settings
-  jes.settings.mimes = newMimetypes()
-  jes.matchProc = match
 
   # Ensure we have at least one logger enabled, defaulting to console.
   if logging.getHandlers().len == 0:
     addHandler(logging.newConsoleLogger())
     setLogFilter(when defined(release): lvlInfo else: lvlDebug)
 
-  if settings.bindAddr.len > 0:
+  if self.settings.bindAddr.len > 0:
     logging.info("Jester is making jokes at http://$1:$2$3" %
-                 [settings.bindAddr, $jes.settings.port, jes.settings.appName])
+      [
+        self.settings.bindAddr, $self.settings.port, self.settings.appName
+      ]
+    )
   else:
     logging.info("Jester is making jokes at http://0.0.0.0:$1$2" %
-                 [$jes.settings.port, jes.settings.appName])
+                 [$self.settings.port, self.settings.appName])
 
   when useHttpBeast:
+    var jes = self
     run(
       proc (req: httpbeast.Request): Future[void] =
         result = handleRequest(jes, req),
-      httpbeast.Settings(port: jes.settings.port)
+      httpbeast.Settings(port: self.settings.port)
     )
   else:
-    jes.httpServer = newAsyncHttpServer(reusePort=jes.settings.reusePort)
-    let serveFut = jes.httpServer.serve(
-      jes.settings.port,
+    self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort)
+    let serveFut = self.httpServer.serve(
+      self.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
-        result = handleRequest(jes, req),
+        result = handleRequest(self, req),
       settings.bindAddr)
     if not settings.errorHandler.isNil:
-      serveFut.callback = settings.errorHandler
+      serveFut.callback = self.settings.errorHandler
     else:
       asyncCheck serveFut
     runForever()
@@ -644,8 +667,10 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
     newIdentNode("outerRoute"), ifStmt)
   dest.add blockStmt
 
-macro routes*(body: untyped): typed =
-  #echo(treeRepr(body))
+proc routesEx(name: string, body: NimNode): NimNode =
+  # echo(treeRepr(body))
+  # echo(treeRepr(name))
+
   result = newStmtList()
 
   # -> declareSettings()
@@ -659,7 +684,7 @@ macro routes*(body: untyped): typed =
   # TODO: re/pattern match pattern values somewhere...
   matchBody.add parseExpr("var request = request")
   var caseStmt = newNimNode(nnkCaseStmt)
-  caseStmt.add parseExpr("request.reqMeth")
+  caseStmt.add parseExpr("request.reqMethod")
 
   var caseStmtGetBody = newNimNode(nnkStmtList)
   var caseStmtPostBody = newNimNode(nnkStmtList)
@@ -753,15 +778,40 @@ macro routes*(body: untyped): typed =
 
   matchBody.add caseStmt
 
-  var matchProc = parseStmt("proc match(request: Request" &
-    "): Future[ResponseData] {.async, gcsafe.} = discard")
-  matchProc[0][6] = matchBody
+  let matchIdent = newIdentNode(name)
+  let reqIdent = newIdentNode("request")
+  var matchProc = quote do:
+    proc `matchIdent`(
+      `reqIdent`: Request
+    ): Future[ResponseData] {.async, gcsafe.} =
+      discard
+
+  matchProc[6] = matchBody
   result.add(outsideStmts)
   result.add(matchProc)
 
-  result.add parseExpr("jester.serve(match, settings)")
   # echo toStrLit(result)
-  #echo treeRepr(result)
+  # echo treeRepr(result)
+
+macro routes*(body: untyped): typed =
+  result = routesEx("match", body)
+  let jesIdent = genSym(nskVar, "jes")
+  let matchIdent = newIdentNode("match")
+  let settingsIdent = newIdentNode("settings")
+  result.add(
+    quote do:
+      var `jesIdent` = initJester(`matchIdent`, `settingsIdent`)
+  )
+  result.add(
+    quote do:
+      serve(`jesIdent`)
+  )
+
+macro router*(name: string{lit}, body: untyped): typed =
+  if name.kind != nnkStrLit:
+    error("Need a string literal.", name)
+
+  routesEx(name.strVal, body)
 
 macro settings*(body: untyped): typed =
   #echo(treeRepr(body))
