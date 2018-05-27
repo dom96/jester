@@ -255,7 +255,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
   appName = "", bindAddr = "", reusePort = false,
-  errorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
+  futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
 ): Settings =
   result = Settings(
     staticDir: staticDir,
@@ -263,7 +263,7 @@ proc newSettings*(
     port: port,
     bindAddr: bindAddr,
     reusePort: reusePort,
-    errorHandler: errorHandler
+    futureErrorHandler: futureErrorHandler
   )
 
 proc register*(self: var Jester, matcher: MatchProc) =
@@ -316,8 +316,8 @@ proc serve*(
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
         result = handleRequest(self, req),
       settings.bindAddr)
-    if not settings.errorHandler.isNil:
-      serveFut.callback = self.settings.errorHandler
+    if not settings.futureErrorHandler.isNil:
+      serveFut.callback = self.settings.futureErrorHandler
     else:
       asyncCheck serveFut
     runForever()

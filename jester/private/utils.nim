@@ -16,7 +16,7 @@ type
     port*: Port
     bindAddr*: string
     reusePort*: bool
-    errorHandler*: proc (fut: Future[void]) {.closure, gcsafe.}
+    futureErrorHandler*: proc (fut: Future[void]) {.closure, gcsafe.}
     # errorFilter*: proc(e: ref Exception, res: var Response) {.closure, gcsafe.}
 
 proc parseUrlQuery*(query: string, result: var Table[string, string])
