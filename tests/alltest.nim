@@ -10,7 +10,16 @@ settings:
   appName = "/foo"
   bindAddr = "127.0.0.1"
 
+router external:
+  get "/separateRouter":
+    resp "Works!"
+
+  get "/separate/@foo":
+    resp @"foo"
+
 routes:
+  extend external, "/external"
+
   get "/":
     resp "Hello World"
 

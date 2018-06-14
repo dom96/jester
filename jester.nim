@@ -2,7 +2,7 @@
 # MIT License - Look at license.txt for details.
 import net, strtabs, re, tables, parseutils, os, strutils, uri,
        scgi, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
-       logging, httpcore, asyncfile
+       logging, httpcore, asyncfile, macrocache
 
 import jester/private/[errorpages, utils]
 import jester/[request, patterns]
@@ -667,9 +667,79 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
     newIdentNode("outerRoute"), ifStmt)
   dest.add blockStmt
 
+const definedRoutes = CacheTable"jester.routes"
+
+proc processRoutesBody(
+  body: NimNode,
+  caseStmtGetBody,
+  caseStmtPostBody,
+  caseStmtPutBody,
+  caseStmtDeleteBody,
+  caseStmtHeadBody,
+  caseStmtOptionsBody,
+  caseStmtTraceBody,
+  caseStmtConnectBody,
+  caseStmtPatchBody: var NimNode,
+  outsideStmts: var NimNode
+) =
+  for i in 0..<body.len:
+    case body[i].kind
+    of nnkCommand:
+      let cmdName = body[i][0].`$`.normalize
+      case cmdName
+      # HTTP Methods
+      of "get":
+        createRoute(body, caseStmtGetBody, i)
+      of "post":
+        createRoute(body, caseStmtPostBody, i)
+      of "put":
+        createRoute(body, caseStmtPutBody, i)
+      of "delete":
+        createRoute(body, caseStmtDeleteBody, i)
+      of "head":
+        createRoute(body, caseStmtHeadBody, i)
+      of "options":
+        createRoute(body, caseStmtOptionsBody, i)
+      of "trace":
+        createRoute(body, caseStmtTraceBody, i)
+      of "connect":
+        createRoute(body, caseStmtConnectBody, i)
+      of "patch":
+        createRoute(body, caseStmtPatchBody, i)
+      # Other
+      of "extend":
+        # Extend another router.
+        let extend = body[i]
+        if extend[1].kind != nnkIdent:
+          error("Expected identifier.", extend[1])
+
+        let routeName = $extend[1].ident
+        processRoutesBody(
+          definedRoutes[$extend[1].ident],
+          caseStmtGetBody,
+          caseStmtPostBody,
+          caseStmtPutBody,
+          caseStmtDeleteBody,
+          caseStmtHeadBody,
+          caseStmtOptionsBody,
+          caseStmtTraceBody,
+          caseStmtConnectBody,
+          caseStmtPatchBody,
+          outsideStmts
+        )
+      else:
+        outsideStmts.add(body[i])
+    of nnkCommentStmt:
+      discard
+    else:
+      outsideStmts.add(body[i])
+
 proc routesEx(name: string, body: NimNode): NimNode =
   # echo(treeRepr(body))
   # echo(treeRepr(name))
+
+  # Save this route's body so that it can be incorporated into another route.
+  definedRoutes[name] = body.copyNimTree
 
   result = newStmtList()
 
@@ -696,40 +766,19 @@ proc routesEx(name: string, body: NimNode): NimNode =
   var caseStmtConnectBody = newNimNode(nnkStmtList)
   var caseStmtPatchBody = newNimNode(nnkStmtList)
 
-  for i in 0..<body.len:
-    case body[i].kind
-    of nnkCommand:
-      let cmdName = body[i][0].`$`.normalize
-      case cmdName
-      of "get", "post", "put", "delete", "head", "options", "trace", "connect",
-         "patch":
-        case cmdName
-        of "get":
-          createRoute(body, caseStmtGetBody, i)
-        of "post":
-          createRoute(body, caseStmtPostBody, i)
-        of "put":
-          createRoute(body, caseStmtPutBody, i)
-        of "delete":
-          createRoute(body, caseStmtDeleteBody, i)
-        of "head":
-          createRoute(body, caseStmtHeadBody, i)
-        of "options":
-          createRoute(body, caseStmtOptionsBody, i)
-        of "trace":
-          createRoute(body, caseStmtTraceBody, i)
-        of "connect":
-          createRoute(body, caseStmtConnectBody, i)
-        of "patch":
-          createRoute(body, caseStmtPatchBody, i)
-        else:
-          discard
-      else:
-        discard
-    of nnkCommentStmt:
-      discard
-    else:
-      outsideStmts.add(body[i])
+  processRoutesBody(
+    body,
+    caseStmtGetBody,
+    caseStmtPostBody,
+    caseStmtPutBody,
+    caseStmtDeleteBody,
+    caseStmtHeadBody,
+    caseStmtOptionsBody,
+    caseStmtTraceBody,
+    caseStmtConnectBody,
+    caseStmtPatchBody,
+    outsideStmts
+  )
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
@@ -807,11 +856,11 @@ macro routes*(body: untyped): typed =
       serve(`jesIdent`)
   )
 
-macro router*(name: string{lit}, body: untyped): typed =
-  if name.kind != nnkStrLit:
-    error("Need a string literal.", name)
+macro router*(name: untyped, body: untyped): typed =
+  if name.kind != nnkIdent:
+    error("Need an ident.", name)
 
-  routesEx(name.strVal, body)
+  routesEx($name.ident, body)
 
 macro settings*(body: untyped): typed =
   #echo(treeRepr(body))
