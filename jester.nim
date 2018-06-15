@@ -302,8 +302,8 @@ proc serve*(
     logging.info("Jester is making jokes at http://0.0.0.0:$1$2" %
                  [$self.settings.port, self.settings.appName])
 
+  var jes = self
   when useHttpBeast:
-    var jes = self
     run(
       proc (req: httpbeast.Request): Future[void] =
         result = handleRequest(jes, req),
@@ -314,9 +314,9 @@ proc serve*(
     let serveFut = self.httpServer.serve(
       self.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
-        result = handleRequest(self, req),
-      settings.bindAddr)
-    if not settings.futureErrorHandler.isNil:
+        result = handleRequest(jes, req),
+      self.settings.bindAddr)
+    if not self.settings.futureErrorHandler.isNil:
       serveFut.callback = self.settings.futureErrorHandler
     else:
       asyncCheck serveFut
@@ -540,7 +540,7 @@ proc skipDo(node: NimNode): NimNode {.compiletime.} =
   else:
     result = node
 
-proc ctParsePattern(pattern: string): NimNode {.compiletime.} =
+proc ctParsePattern(pattern, pathPrefix: string): NimNode {.compiletime.} =
   result = newNimNode(nnkPrefix)
   result.add newIdentNode("@")
   result.add newNimNode(nnkBracket)
@@ -560,6 +560,13 @@ proc ctParsePattern(pattern: string): NimNode {.compiletime.} =
     res[1].add objConstr
 
   var patt = parsePattern(pattern)
+  if pathPrefix.len > 0:
+    result.addPattNode(
+      newIdentNode("NodeText"), # Node kind
+      newStrLitNode(pathPrefix), # Text
+      newIdentNode("false") # Optional?
+    )
+
   for node in patt:
     # TODO: Can't bindSym the node type. issue #1319
     result.addPattNode(
@@ -581,19 +588,43 @@ template declareSettings(): typed {.dirty.} =
   when not declaredInScope(settings):
     var settings = newSettings()
 
-proc createJesterPattern(body,
-     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
-  var ctPattern = ctParsePattern(body[i][1].strVal)
+proc createJesterPattern(
+  routeNode, patternMatchSym: NimNode,
+  pathPrefix: string
+): NimNode {.compileTime.} =
+  var ctPattern = ctParsePattern(routeNode[1].strVal, pathPrefix)
   # -> let <patternMatchSym> = <ctPattern>.match(request.path)
   return newLetStmt(patternMatchSym,
       newCall(bindSym"match", ctPattern, parseExpr("request.pathInfo")))
 
-proc createRegexPattern(body, reMatchesSym,
-     patternMatchSym: NimNode, i: int): NimNode {.compileTime.} =
-  # -> let <patternMatchSym> = <ctPattern>.match(request.path)
-  return newLetStmt(patternMatchSym,
-      newCall(bindSym"find", parseExpr("request.pathInfo"), body[i][1],
-              reMatchesSym))
+proc escapeRegex(s: string): string =
+  result = ""
+  for i in s:
+    case i
+    # https://stackoverflow.com/a/400316/492186
+    of '.', '^', '$', '*', '+', '?', '(', ')', '[', '{', '\\', '|':
+      result.add('\\')
+      result.add(i)
+    else:
+      result.add(i)
+
+proc createRegexPattern(
+  routeNode, reMatchesSym, patternMatchSym: NimNode,
+  pathPrefix: string
+): NimNode {.compileTime.} =
+  # -> let <patternMatchSym> = find(request.pathInfo, <pattern>, <reMatches>)
+  echo(treeRepr(routeNode[1]))
+  var strNode = routeNode[1].copyNimTree()
+  strNode[1].strVal = escapeRegex(pathPrefix) & strNode[1].strVal
+  return newLetStmt(
+    patternMatchSym,
+    newCall(
+      bindSym"find",
+      parseExpr("request.pathInfo"),
+      strNode,
+      reMatchesSym
+    )
+  )
 
 proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   case pattern.kind
@@ -608,7 +639,7 @@ proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   else:
     macros.error("Unexpected node kind: " & $pattern.kind)
 
-proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
+proc createRoute(routeNode, dest: NimNode, pathPrefix: string) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
 
@@ -620,13 +651,15 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
   reMatches[0][0] = reMatchesSym
   reMatches[0][1][1] = bindSym("MaxSubpatterns")
 
-  let patternType = determinePatternType(body[i][1])
+  let patternType = determinePatternType(routeNode[1])
   case patternType
   of MSpecial:
-    dest.add createJesterPattern(body, patternMatchSym, i)
+    dest.add createJesterPattern(routeNode, patternMatchSym, pathPrefix)
   of MRegex:
     dest.add reMatches
-    dest.add createRegexPattern(body, reMatchesSym, patternMatchSym, i)
+    dest.add createRegexPattern(
+      routeNode, reMatchesSym, patternMatchSym, pathPrefix
+    )
 
   var ifStmtBody = newStmtList()
   case patternType
@@ -639,12 +672,11 @@ proc createRoute(body, dest: NimNode, i: int) {.compileTime.} =
     ifStmtBody.add newCall(bindSym"setReMatches", newIdentNode"request",
                            reMatchesSym)
 
-  ifStmtBody.add body[i][2].skipDo()
+  ifStmtBody.add routeNode[2].skipDo()
   var checkActionIf = parseExpr(
     "if checkAction(result): result.matched = true; return"
   )
   checkActionIf[0][0][0] = bindSym"checkAction"
-  #ifStmtBody.add checkActionIf
 
   # -> block route: <ifStmtBody>; <checkActionIf>
   var innerBlockStmt = newStmtList(
@@ -680,7 +712,8 @@ proc processRoutesBody(
   caseStmtTraceBody,
   caseStmtConnectBody,
   caseStmtPatchBody: var NimNode,
-  outsideStmts: var NimNode
+  outsideStmts: var NimNode,
+  pathPrefix: string
 ) =
   for i in 0..<body.len:
     case body[i].kind
@@ -689,23 +722,23 @@ proc processRoutesBody(
       case cmdName
       # HTTP Methods
       of "get":
-        createRoute(body, caseStmtGetBody, i)
+        createRoute(body[i], caseStmtGetBody, pathPrefix)
       of "post":
-        createRoute(body, caseStmtPostBody, i)
+        createRoute(body[i], caseStmtPostBody, pathPrefix)
       of "put":
-        createRoute(body, caseStmtPutBody, i)
+        createRoute(body[i], caseStmtPutBody, pathPrefix)
       of "delete":
-        createRoute(body, caseStmtDeleteBody, i)
+        createRoute(body[i], caseStmtDeleteBody, pathPrefix)
       of "head":
-        createRoute(body, caseStmtHeadBody, i)
+        createRoute(body[i], caseStmtHeadBody, pathPrefix)
       of "options":
-        createRoute(body, caseStmtOptionsBody, i)
+        createRoute(body[i], caseStmtOptionsBody, pathPrefix)
       of "trace":
-        createRoute(body, caseStmtTraceBody, i)
+        createRoute(body[i], caseStmtTraceBody, pathPrefix)
       of "connect":
-        createRoute(body, caseStmtConnectBody, i)
+        createRoute(body[i], caseStmtConnectBody, pathPrefix)
       of "patch":
-        createRoute(body, caseStmtPatchBody, i)
+        createRoute(body[i], caseStmtPatchBody, pathPrefix)
       # Other
       of "extend":
         # Extend another router.
@@ -713,7 +746,14 @@ proc processRoutesBody(
         if extend[1].kind != nnkIdent:
           error("Expected identifier.", extend[1])
 
-        let routeName = $extend[1].ident
+        let prefix =
+          if extend.len > 1:
+            extend[2].strVal
+          else:
+            ""
+        if prefix.len != 0 and prefix[0] != '/':
+          error("Path prefix for extended route must start with '/'", extend[2])
+
         processRoutesBody(
           definedRoutes[$extend[1].ident],
           caseStmtGetBody,
@@ -725,7 +765,8 @@ proc processRoutesBody(
           caseStmtTraceBody,
           caseStmtConnectBody,
           caseStmtPatchBody,
-          outsideStmts
+          outsideStmts,
+          pathPrefix & prefix
         )
       else:
         outsideStmts.add(body[i])
@@ -777,7 +818,8 @@ proc routesEx(name: string, body: NimNode): NimNode =
     caseStmtTraceBody,
     caseStmtConnectBody,
     caseStmtPatchBody,
-    outsideStmts
+    outsideStmts,
+    ""
   )
 
   var ofBranchGet = newNimNode(nnkOfBranch)
