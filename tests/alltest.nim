@@ -2,6 +2,8 @@
 # MIT License - Look at license.txt for details.
 import jester, asyncdispatch, strutils, random, os, asyncnet, re
 
+import alltest_router2
+
 template return200(): untyped =
   resp Http200, "Templates now work!"
 
@@ -10,15 +12,17 @@ settings:
   appName = "/foo"
   bindAddr = "127.0.0.1"
 
-router external:
-  get "/separateRouter":
+router internal:
+  get "/simple":
     resp "Works!"
 
-  get "/separate/@foo":
+  get "/params/@foo":
     resp @"foo"
 
 routes:
+  extend internal, "/internal"
   extend external, "/external"
+  extend external, "/(regexEscaped.txt)"
 
   get "/":
     resp "Hello World"

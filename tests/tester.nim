@@ -100,6 +100,26 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/template")
     check (waitFor resp.body) == "Templates now work!"
 
+  suite "extends":
+    test "simple":
+      let resp = waitFor client.get(address & "/foo/internal/simple")
+      check (waitFor resp.body) == "Works!"
+
+    test "params":
+      let resp = waitFor client.get(address & "/foo/internal/params/blah")
+      check (waitFor resp.body) == "blah"
+
+    test "separate module":
+      let resp = waitFor client.get(address & "/foo/external/params/qwer")
+      check (waitFor resp.body) == "qwer"
+
+    test "external regex":
+      let resp = waitFor client.get(address & "/foo/external/(foobar)/qwer/")
+      check (waitFor resp.body) == "qwer"
+
+    test "regex path prefix escaped":
+      let resp = waitFor client.get(address & "/foo/(regexEscaped.txt)/(foobar)/1/")
+      check (waitFor resp.body) == "1"
 
 when isMainModule:
   try:

@@ -16,6 +16,7 @@ export httpcore
 export NodeType # TODO: Couldn't bindsym this.
 export MultiData
 export HttpMethod
+export asyncdispatch
 
 export SameSite
 
@@ -613,7 +614,6 @@ proc createRegexPattern(
   pathPrefix: string
 ): NimNode {.compileTime.} =
   # -> let <patternMatchSym> = find(request.pathInfo, <pattern>, <reMatches>)
-  echo(treeRepr(routeNode[1]))
   var strNode = routeNode[1].copyNimTree()
   strNode[1].strVal = escapeRegex(pathPrefix) & strNode[1].strVal
   return newLetStmt(
