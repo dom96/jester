@@ -13,7 +13,6 @@ export request
 export strtabs
 export tables
 export httpcore
-export NodeType # TODO: Couldn't bindsym this.
 export MultiData
 export HttpMethod
 export asyncdispatch
@@ -563,17 +562,16 @@ proc ctParsePattern(pattern, pathPrefix: string): NimNode {.compiletime.} =
   var patt = parsePattern(pattern)
   if pathPrefix.len > 0:
     result.addPattNode(
-      newIdentNode("NodeText"), # Node kind
+      bindSym("NodeText"), # Node kind
       newStrLitNode(pathPrefix), # Text
       newIdentNode("false") # Optional?
     )
 
   for node in patt:
-    # TODO: Can't bindSym the node type. issue #1319
     result.addPattNode(
       case node.typ
-      of NodeText: newIdentNode("NodeText")
-      of NodeField: newIdentNode("NodeField"),
+      of NodeText: bindSym("NodeText")
+      of NodeField: bindSym("NodeField"),
       newStrLitNode(node.text),
       newIdentNode(if node.optional: "true" else: "false"))
 
