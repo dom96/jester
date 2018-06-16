@@ -27,12 +27,16 @@ else:
 
 type
   MatchProc* = proc (request: Request): Future[ResponseData] {.gcsafe, closure.}
+  ErrorProc* = proc (
+    request: Request, error: RouteError
+  ): Future[ResponseData] {.gcsafe, closure.}
 
   Jester* = object
     when not useHttpBeast:
       httpServer*: AsyncHttpServer
     settings: Settings
     matchers: seq[MatchProc]
+    errorHandlers: seq[ErrorProc]
 
   MatchType* = enum
     MRegex, MSpecial
@@ -43,7 +47,14 @@ type
   CallbackAction* = enum
     TCActionNothing, TCActionSend, TCActionRaw, TCActionPass,
 
-
+  RouteErrorKind* = enum
+    RouteException, RouteCode
+  RouteError* = object
+    case kind*: RouteErrorKind
+    of RouteException:
+      exc: ref Exception
+    of RouteCode:
+      data: ResponseData
 
 const jesterVer = "0.3.0"
 
@@ -72,6 +83,7 @@ proc statusContent(request: Request, status: HttpCode, content: string,
   except:
     logging.error("Could not send response: $1" % osErrorMsg(osLastError()))
 
+# TODO: Add support for proper Future Streams instead of this weird raw mode.
 template enableRawMode* =
   # TODO: Use the effect system to make this implicit?
   result.action = TCActionRaw
@@ -115,16 +127,16 @@ proc send*(request: Request, status: HttpCode, headers: HttpHeaders,
   request.send(content)
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
-proc sendStaticIfExists(req: Request, jes: Jester,
-                        paths: seq[string]) {.async.} =
+proc sendStaticIfExists(
+  jes: Jester, req: Request, paths: seq[string]
+): Future[HttpCode] {.async.} =
+  result = Http200
   for p in paths:
     if existsFile(p):
 
       var fp = getFilePermissions(p)
       if not fp.contains(fpOthersRead):
-        req.statusContent(Http403, error($Http403, jesterVer),
-          {"Content-Type": "text/html;charset=utf-8"}.newHttpHeaders())
-        return
+        return Http403
 
       let fileSize = getFileSize(p)
       let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. ^1])
@@ -167,35 +179,63 @@ proc sendStaticIfExists(req: Request, jes: Jester,
       return
 
   # If we get to here then no match could be found.
-  req.statusContent(
-    Http404, error($Http404, jesterVer),
-    {"Content-Type": "text/html;charset=utf-8"}.newHttpHeaders
+  return Http404
+
+proc defaultErrorFilter(error: RouteError): ResponseData =
+  case error.kind
+  of RouteException:
+    let e = error.exc
+    let traceback = getStackTrace(e)
+    var errorMsg = e.msg
+    if errorMsg.isNil: errorMsg = "(nil)"
+
+    let error = traceback & errorMsg
+    logging.error(error)
+    result.headers = {
+      "Content-Type": "text/html;charset=utf-8"
+    }.newHttpHeaders
+    result.content = routeException(
+      error.replace("\n", "<br/>\n"),
+      jesterVer
+    )
+    result.code = Http502
+    result.matched = true
+    result.action = TCActionSend
+  of RouteCode:
+    result.headers = {
+      "Content-Type": "text/html;charset=utf-8"
+    }.newHttpHeaders
+    result.content = error(
+      $error.data.code,
+      jesterVer
+    )
+    result.code = error.data.code
+    result.matched = true
+    result.action = TCActionSend
+
+proc initRouteError(exc: ref Exception): RouteError =
+  RouteError(
+    kind: RouteException,
+    exc: exc
   )
 
-proc defaultErrorFilter(e: ref Exception, respData: var ResponseData) =
-  let traceback = getStackTrace(e)
-  var errorMsg = e.msg
-  if errorMsg.isNil: errorMsg = "(nil)"
-
-  let error = traceback & errorMsg
-  logging.error(error)
-  respData.headers = {
-    "Content-Type": "text/html;charset=utf-8"
-  }.newHttpHeaders
-  respData.content = routeException(
-    error.replace("\n", "<br/>\n"),
-    jesterVer
+proc initRouteError(data: ResponseData): RouteError =
+  RouteError(
+    kind: RouteCode,
+    data: data
   )
-  respData.code = Http502
-  respData.matched = true
-  respData.action = TCActionSend
 
-proc handleError(jes: Jester, error: ref Exception,
-                 respData: var ResponseData) =
-  # if jes.settings.errorFilter.isNil:
-  defaultErrorFilter(error, respData)
-  # else:
-  #   jes.settings.errorFilter(error, resp)
+proc dispatchError(
+  jes: Jester,
+  request: Request,
+  error: RouteError
+): Future[ResponseData] {.async.} =
+  for errorProc in jes.errorHandlers:
+    let data = await errorProc(request, error)
+    if data.matched:
+      return data
+
+  return defaultErrorFilter(error)
 
 proc dispatch(
   self: Jester,
@@ -217,38 +257,53 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
     logging.debug("$1 $2" % [$req.reqMethod, req.pathInfo])
     dispatchFut = jes.dispatch(req)
   except:
-    handleError(jes, getCurrentException(), respData)
+    let exc = getCurrentException()
+    respData = await dispatchError(jes, req, initRouteError(exc))
 
   if not dispatchFut.isNil:
     yield dispatchFut
     if dispatchFut.failed:
       # Handle any errors by showing them in the browser.
       # TODO: Improve the look of this.
-      handleError(jes, dispatchFut.error, respData)
+      let error = initRouteError(dispatchFut.error)
+      respData = await dispatchError(jes, req, error)
     else:
       respData = dispatchFut.read()
 
-  if respData.matched:
-    if respData.action == TCActionSend:
-      req.statusContent(
-        respData.code,
-        respData.content,
-        respData.headers
-      )
-    else:
-      logging.debug("  $1" % [$respData.action])
-  else:
+  # TODO: Get rid of `matched` and create a special matcher for files.
+  if not respData.matched:
     # Find static file.
     # TODO: Caching.
     let publicRequested = jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
+    var status = Http200
     if existsDir(publicRequested):
-      await sendStaticIfExists(
+      status = await jes.sendStaticIfExists(
         req,
-        jes,
         @[publicRequested / "index.html", publicRequested / "index.htm"]
       )
     else:
-      await sendStaticIfExists(req, jes, @[publicRequested])
+      status = await jes.sendStaticIfExists(req, @[publicRequested])
+
+    # Http200 means that the data was sent so there is nothing else to do.
+    if status == Http200:
+      return
+
+    respData.code = status
+    respData.action = TCActionSend
+
+  if respData.action == TCActionSend:
+    if (respData.code.is4xx or respData.code.is5xx) and
+        respData.content.len == 0:
+      respData = await dispatchError(jes, req, initRouteError(respData))
+
+    statusContent(
+      req,
+      respData.code,
+      respData.content,
+      respData.headers
+    )
+  else:
+    logging.debug("  $1" % [$respData.action])
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
@@ -270,13 +325,23 @@ proc register*(self: var Jester, matcher: MatchProc) =
   ## Adds the specified matcher procedure to the specified Jester instance.
   self.matchers.add(matcher)
 
+proc register*(self: var Jester, errorHandler: ErrorProc) =
+  ## Adds the specified error handler procedure to the specified Jester instance.
+  self.errorHandlers.add(errorHandler)
+
 proc initJester*(
-  matcher: proc (request: Request): Future[ResponseData] {.gcsafe, closure.},
   settings: Settings = newSettings()
 ): Jester =
   result.settings = settings
   result.settings.mimes = newMimetypes()
   result.matchers = @[]
+  result.errorHandlers = @[]
+
+proc initJester*(
+  matcher: proc (request: Request): Future[ResponseData] {.gcsafe, closure.},
+  settings: Settings = newSettings()
+): Jester =
+  result = initJester(settings)
   result.register(matcher)
 
 proc serve*(
