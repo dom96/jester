@@ -130,6 +130,23 @@ proc allTest(useStdLib: bool) =
       let resp = waitFor client.get(address & "/foo/(regexEscaped.txt)/(foobar)/1/")
       check (waitFor resp.body) == "1"
 
+  suite "error":
+    test "exception":
+      let resp = waitFor client.get(address & "/foo/MyCustomError")
+      check (waitFor resp.body) == "Something went wrong: ref MyCustomError"
+
+    test "HttpCode handling":
+      let resp = waitFor client.get(address & "/foo/400")
+      check (waitFor resp.body) == "OK: 400 Bad Request"
+
+    test "`pass` in error handler":
+      let resp = waitFor client.get(address & "/foo/401")
+      check (waitFor resp.body) == "OK: 401 Unauthorized"
+
+    test "custom 404":
+      let resp = waitFor client.get(address & "/foo/404")
+      check (waitFor resp.body) == "404 not found!!!"
+
 when isMainModule:
   try:
     allTest(useStdLib=false) # Test HttpBeast.

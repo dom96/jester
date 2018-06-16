@@ -1,8 +1,13 @@
-# Copyright (C) 2015 Dominik Picheta
+# Copyright (C) 2018 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import jester, asyncdispatch, strutils, random, os, asyncnet, re
+import jester, asyncdispatch, strutils, random, os, asyncnet, re, typetraits
 
 import alltest_router2
+
+type
+  MyCustomError = object of Exception
+  RaiseAnotherError = object of Exception
+
 
 template return200(): untyped =
   resp Http200, "Templates now work!"
@@ -126,3 +131,36 @@ routes:
 
   get "/nil":
     resp nil
+
+  get "/MyCustomError":
+    raise newException(MyCustomError, "testing")
+
+  get "/RaiseAnotherError":
+    raise newException(RaiseAnotherError, "testing")
+
+  error MyCustomError:
+    resp "Something went wrong: " & $type(exception)
+
+  error RaiseAnotherError:
+    raise newException(RaiseAnotherError, "This shouldn't crash.") # TODO
+
+  error Http404:
+    resp Http404, "404 not found!!!"
+
+  get "/401":
+    resp Http401
+  get "/400":
+    resp Http400
+
+  error {Http400 .. Http408}:
+    if error.data.code == Http401:
+      pass
+
+    doAssert error.data.code != Http401
+    resp "OK: " & $error.data.code
+
+  error {Http400 .. Http408}:
+    doAssert error.data.code == Http401
+    resp "OK: " & $error.data.code
+
+  # TODO: Add explicit test for `resp Http404, "With Body!"`.

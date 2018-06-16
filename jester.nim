@@ -250,6 +250,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
   var req = initRequest(httpReq, jes.settings)
 
   var dispatchFut: Future[ResponseData]
+  var dispatchedError = false
   var respData: ResponseData
 
   # TODO: Fix this messy error handling once 'yield' in try stmt lands.
@@ -259,6 +260,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
   except:
     let exc = getCurrentException()
     respData = await dispatchError(jes, req, initRouteError(exc))
+    dispatchedError = true
 
   if not dispatchFut.isNil:
     yield dispatchFut
@@ -267,10 +269,11 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
       # TODO: Improve the look of this.
       let error = initRouteError(dispatchFut.error)
       respData = await dispatchError(jes, req, error)
+      dispatchedError = true
     else:
       respData = dispatchFut.read()
 
-  # TODO: Get rid of `matched` and create a special matcher for files.
+  # TODO: Put this in a custom matcher?
   if not respData.matched:
     # Find static file.
     # TODO: Caching.
@@ -293,7 +296,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
 
   if respData.action == TCActionSend:
     if (respData.code.is4xx or respData.code.is5xx) and
-        respData.content.len == 0:
+        not dispatchedError and respData.content.len == 0:
       respData = await dispatchError(jes, req, initRouteError(respData))
 
     statusContent(
@@ -416,6 +419,15 @@ template resp*(code: HttpCode, content: string,
   result[1] = code
   result[2]["Content-Type"] = contentType
   result[3] = content
+  result.matched = true
+  break route
+
+template resp*(code: HttpCode): typed =
+  ## Responds with the specified ``HttpCode``. This ensures that error handlers
+  ## are called.
+  bind TCActionSend, newHttpHeaders
+  result[0] = TCActionSend
+  result[1] = code
   result.matched = true
   break route
 
@@ -702,6 +714,13 @@ proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   else:
     macros.error("Unexpected node kind: " & $pattern.kind)
 
+proc createCheckActionIf(): NimNode =
+  var checkActionIf = parseExpr(
+    "if checkAction(result): result.matched = true; return"
+  )
+  checkActionIf[0][0][0] = bindSym"checkAction"
+  return checkActionIf
+
 proc createRoute(routeNode, dest: NimNode, pathPrefix: string) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
@@ -736,15 +755,11 @@ proc createRoute(routeNode, dest: NimNode, pathPrefix: string) {.compileTime.} =
                            reMatchesSym)
 
   ifStmtBody.add routeNode[2].skipDo()
-  var checkActionIf = parseExpr(
-    "if checkAction(result): result.matched = true; return"
-  )
-  checkActionIf[0][0][0] = bindSym"checkAction"
 
   # -> block route: <ifStmtBody>; <checkActionIf>
   var innerBlockStmt = newStmtList(
     newNimNode(nnkBlockStmt).add(newIdentNode("route"), ifStmtBody),
-    checkActionIf
+    createCheckActionIf()
   )
 
   let ifCond =
@@ -762,10 +777,64 @@ proc createRoute(routeNode, dest: NimNode, pathPrefix: string) {.compileTime.} =
     newIdentNode("outerRoute"), ifStmt)
   dest.add blockStmt
 
+proc createError(
+  errorNode: NimNode,
+  httpCodeBranches,
+  exceptionBranches: var seq[tuple[cond, body: NimNode]]
+) =
+  if errorNode.len != 3:
+    error("Missing error condition or body.", errorNode)
+
+  let routeIdent = newIdentNode("route")
+  let outerRouteIdent = newIdentNode("outerRoute")
+  let checkActionIf = createCheckActionIf()
+  let exceptionIdent = newIdentNode("exception")
+  let errorIdent = newIdentNode("error") # TODO: Ugh. I shouldn't need these...
+  let errorCond = errorNode[1]
+  let errorBody = errorNode[2]
+  let body = quote do:
+    block `outerRouteIdent`:
+      block `routeIdent`:
+        `errorBody`
+      `checkActionIf`
+
+  case errorCond.kind
+  of nnkIdent:
+    let name = errorCond.strVal
+    if name.len == 7 and name.startsWith("Http"):
+      # HttpCode.
+      httpCodeBranches.add(
+        (
+          infix(parseExpr("error.data.code"), "==", errorCond),
+          body
+        )
+      )
+    else:
+      # Exception
+      exceptionBranches.add(
+        (
+          infix(parseExpr("error.exc"), "of", errorCond),
+          quote do:
+            let `exceptionIdent` = (ref `errorCond`)(`errorIdent`.exc)
+            `body`
+        )
+      )
+  of nnkCurly:
+    expectKind(errorCond[0], nnkInfix)
+    httpCodeBranches.add(
+      (
+        infix(parseExpr("error.data.code"), "in", errorCond),
+        body
+      )
+    )
+  else:
+    error("Expected exception type or set[HttpCode].", errorCond)
+
 const definedRoutes = CacheTable"jester.routes"
 
 proc processRoutesBody(
   body: NimNode,
+  # For HTTP methods.
   caseStmtGetBody,
   caseStmtPostBody,
   caseStmtPutBody,
@@ -775,6 +844,10 @@ proc processRoutesBody(
   caseStmtTraceBody,
   caseStmtConnectBody,
   caseStmtPatchBody: var NimNode,
+  # For `error`.
+  httpCodeBranches,
+  exceptionBranches: var seq[tuple[cond, body: NimNode]],
+  # For other statements.
   outsideStmts: var NimNode,
   pathPrefix: string
 ) =
@@ -803,6 +876,8 @@ proc processRoutesBody(
       of "patch":
         createRoute(body[i], caseStmtPatchBody, pathPrefix)
       # Other
+      of "error":
+        createError(body[i], httpCodeBranches, exceptionBranches)
       of "extend":
         # Extend another router.
         let extend = body[i]
@@ -818,7 +893,7 @@ proc processRoutesBody(
           error("Path prefix for extended route must start with '/'", extend[2])
 
         processRoutesBody(
-          definedRoutes[$extend[1].ident],
+          definedRoutes[extend[1].strVal],
           caseStmtGetBody,
           caseStmtPostBody,
           caseStmtPutBody,
@@ -828,6 +903,8 @@ proc processRoutesBody(
           caseStmtTraceBody,
           caseStmtConnectBody,
           caseStmtPatchBody,
+          httpCodeBranches,
+          exceptionBranches,
           outsideStmts,
           pathPrefix & prefix
         )
@@ -853,10 +930,13 @@ proc routesEx(name: string, body: NimNode): NimNode =
   var outsideStmts = newStmtList()
 
   var matchBody = newNimNode(nnkStmtList)
-  matchBody.add newCall(bindSym"setDefaultResp")
+  let setDefaultRespIdent = bindSym"setDefaultResp"
+  matchBody.add newCall(setDefaultRespIdent)
   # TODO: This might kill performance, but we need to store the
   # TODO: re/pattern match pattern values somewhere...
   matchBody.add parseExpr("var request = request")
+
+  # HTTP router case statement nodes:
   var caseStmt = newNimNode(nnkCaseStmt)
   caseStmt.add parseExpr("request.reqMethod")
 
@@ -870,6 +950,10 @@ proc routesEx(name: string, body: NimNode): NimNode =
   var caseStmtConnectBody = newNimNode(nnkStmtList)
   var caseStmtPatchBody = newNimNode(nnkStmtList)
 
+  # Error handler nodes:
+  var httpCodeBranches: seq[tuple[cond, body: NimNode]] = @[]
+  var exceptionBranches: seq[tuple[cond, body: NimNode]] = @[]
+
   processRoutesBody(
     body,
     caseStmtGetBody,
@@ -881,6 +965,8 @@ proc routesEx(name: string, body: NimNode): NimNode =
     caseStmtTraceBody,
     caseStmtConnectBody,
     caseStmtPatchBody,
+    httpCodeBranches,
+    exceptionBranches,
     outsideStmts,
     ""
   )
@@ -944,6 +1030,33 @@ proc routesEx(name: string, body: NimNode): NimNode =
   result.add(outsideStmts)
   result.add(matchProc)
 
+  # Error handler proc
+  let errorHandlerIdent = newIdentNode(name & "ErrorHandler")
+  let errorIdent = newIdentNode("error")
+  let exceptionIdent = newIdentNode("exception")
+  let resultIdent = newIdentNode("result")
+  var errorHandlerProc = quote do:
+    proc `errorHandlerIdent`(
+      `reqIdent`: Request, `errorIdent`: RouteError
+    ): Future[ResponseData] {.gcsafe, async.} =
+      `setDefaultRespIdent`()
+      case `errorIdent`.kind
+      of RouteException:
+        discard
+      of RouteCode:
+        discard
+  if exceptionBranches.len != 0:
+    var stmts = newStmtList()
+    for branch in exceptionBranches:
+      stmts.add(newIfStmt(branch))
+    errorHandlerProc[6][^1][1][1][0] = stmts
+  if httpCodeBranches.len > 1:
+    var stmts = newStmtList()
+    for branch in httpCodeBranches:
+      stmts.add(newIfStmt(branch))
+    errorHandlerProc[6][^1][2][1][0] = stmts
+  result.add(errorHandlerProc)
+
   # echo toStrLit(result)
   # echo treeRepr(result)
 
@@ -951,10 +1064,12 @@ macro routes*(body: untyped): typed =
   result = routesEx("match", body)
   let jesIdent = genSym(nskVar, "jes")
   let matchIdent = newIdentNode("match")
+  let errorHandlerIdent = newIdentNode("matchErrorHandler")
   let settingsIdent = newIdentNode("settings")
   result.add(
     quote do:
       var `jesIdent` = initJester(`matchIdent`, `settingsIdent`)
+      `jesIdent`.register(`errorHandlerIdent`)
   )
   result.add(
     quote do:
