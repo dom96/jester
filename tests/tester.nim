@@ -100,6 +100,15 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/template")
     check (waitFor resp.body) == "Templates now work!"
 
+  suite "static":
+    test "index.html":
+      let resp = waitFor client.get(address & "/foo/root")
+      check (waitFor resp.body) == "This should be available at /root/.\n"
+
+    test "test_file.txt":
+      let resp = waitFor client.get(address & "/foo/root/test_file.txt")
+      check (waitFor resp.body) == "Hello World!"
+
   suite "extends":
     test "simple":
       let resp = waitFor client.get(address & "/foo/internal/simple")
