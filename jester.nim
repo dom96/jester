@@ -466,7 +466,7 @@ template halt*(code: HttpCode,
   result[2] = headers.newHttpHeaders
   result[3] = content
   result.matched = true
-  break route
+  break allRoutes
 
 template halt*(): typed =
   ## Halts the execution of this request immediately. Returns a 404.
@@ -602,7 +602,6 @@ proc guessAction(respData: var ResponseData) =
       respData.content = error($Http502, jesterVer)
 
 proc checkAction(respData: var ResponseData): bool =
-  guessAction(respData)
   case respData.action
   of TCActionSend, TCActionRaw:
     result = true
@@ -716,14 +715,19 @@ proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
 
 proc createCheckActionIf(): NimNode =
   var checkActionIf = parseExpr(
-    "if checkAction(result): result.matched = true; return"
+    "if checkAction(result): result.matched = true; break routesList"
   )
   checkActionIf[0][0][0] = bindSym"checkAction"
   return checkActionIf
 
-proc createRoute(routeNode, dest: NimNode, pathPrefix: string) {.compileTime.} =
+proc createRoute(
+  routeNode, dest: NimNode, pathPrefix: string, isMetaRoute: bool = false
+) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
+  ##
+  ## The `isMetaRoute` parameter determines whether the route to be created is
+  ## a ``before`` or ``after`` route.
 
   var patternMatchSym = genSym(nskLet, "patternMatchRet")
 
@@ -756,10 +760,15 @@ proc createRoute(routeNode, dest: NimNode, pathPrefix: string) {.compileTime.} =
 
   ifStmtBody.add routeNode[2].skipDo()
 
+  let checkActionIf =
+    if isMetaRoute:
+      parseExpr("break routesList")
+    else:
+      createCheckActionIf()
   # -> block route: <ifStmtBody>; <checkActionIf>
   var innerBlockStmt = newStmtList(
     newNimNode(nnkBlockStmt).add(newIdentNode("route"), ifStmtBody),
-    createCheckActionIf()
+    checkActionIf
   )
 
   let ifCond =
@@ -772,7 +781,7 @@ proc createRoute(routeNode, dest: NimNode, pathPrefix: string) {.compileTime.} =
   # -> if <patternMatchSym>.matched: <innerBlockStmt>
   var ifStmt = newIfStmt((ifCond, innerBlockStmt))
 
-  # -> block <thisRouteSym>: <ifStmt>
+  # -> block outerRoute: <ifStmt>
   var blockStmt = newNimNode(nnkBlockStmt).add(
     newIdentNode("outerRoute"), ifStmt)
   dest.add blockStmt
@@ -847,6 +856,9 @@ proc processRoutesBody(
   # For `error`.
   httpCodeBranches,
   exceptionBranches: var seq[tuple[cond, body: NimNode]],
+  # For before/after stmts.
+  beforeStmts,
+  afterStmts: var NimNode,
   # For other statements.
   outsideStmts: var NimNode,
   pathPrefix: string
@@ -878,6 +890,10 @@ proc processRoutesBody(
       # Other
       of "error":
         createError(body[i], httpCodeBranches, exceptionBranches)
+      of "before":
+        createRoute(body[i], beforeStmts, pathPrefix, isMetaRoute=true)
+      of "after":
+        createRoute(body[i], afterStmts, pathPrefix, isMetaRoute=true)
       of "extend":
         # Extend another router.
         let extend = body[i]
@@ -905,6 +921,8 @@ proc processRoutesBody(
           caseStmtPatchBody,
           httpCodeBranches,
           exceptionBranches,
+          beforeStmts,
+          afterStmts,
           outsideStmts,
           pathPrefix & prefix
         )
@@ -954,6 +972,10 @@ proc routesEx(name: string, body: NimNode): NimNode =
   var httpCodeBranches: seq[tuple[cond, body: NimNode]] = @[]
   var exceptionBranches: seq[tuple[cond, body: NimNode]] = @[]
 
+  # Before/After nodes:
+  var beforeRoutes = newStmtList()
+  var afterRoutes = newStmtList()
+
   processRoutesBody(
     body,
     caseStmtGetBody,
@@ -967,6 +989,8 @@ proc routesEx(name: string, body: NimNode): NimNode =
     caseStmtPatchBody,
     httpCodeBranches,
     exceptionBranches,
+    beforeRoutes,
+    afterRoutes,
     outsideStmts,
     ""
   )
@@ -1016,7 +1040,26 @@ proc routesEx(name: string, body: NimNode): NimNode =
   ofBranchPatch.add caseStmtPatchBody
   caseStmt.add ofBranchPatch
 
-  matchBody.add caseStmt
+  # Wrap the routes inside ``routesList`` blocks accordingly, and add them to
+  # the `match` procedure body.
+  let routesListIdent = newIdentNode("routesList")
+  matchBody.add(
+    quote do:
+      block `routesListIdent`:
+        `beforeRoutes`
+  )
+
+  matchBody.add(
+    quote do:
+      block `routesListIdent`:
+        `caseStmt`
+  )
+
+  matchBody.add(
+    quote do:
+      block `routesListIdent`:
+        `afterRoutes`
+  )
 
   let matchIdent = newIdentNode(name)
   let reqIdent = newIdentNode("request")
@@ -1026,7 +1069,13 @@ proc routesEx(name: string, body: NimNode): NimNode =
     ): Future[ResponseData] {.async, gcsafe.} =
       discard
 
-  matchProc[6] = matchBody
+  # The following `block` is for `halt`. (`return` didn't work :/)
+  let allRoutesBlock = newTree(
+    nnkBlockStmt,
+    newIdentNode("allRoutes"),
+    matchBody
+  )
+  matchProc[6] = newTree(nnkStmtList, allRoutesBlock)
   result.add(outsideStmts)
   result.add(matchProc)
 
@@ -1039,23 +1088,28 @@ proc routesEx(name: string, body: NimNode): NimNode =
     proc `errorHandlerIdent`(
       `reqIdent`: Request, `errorIdent`: RouteError
     ): Future[ResponseData] {.gcsafe, async.} =
-      `setDefaultRespIdent`()
-      case `errorIdent`.kind
-      of RouteException:
-        discard
-      of RouteCode:
-        discard
+      block `routesListIdent`:
+        `setDefaultRespIdent`()
+        case `errorIdent`.kind
+        of RouteException:
+          discard
+        of RouteCode:
+          discard
   if exceptionBranches.len != 0:
     var stmts = newStmtList()
     for branch in exceptionBranches:
       stmts.add(newIfStmt(branch))
-    errorHandlerProc[6][^1][1][1][0] = stmts
+    errorHandlerProc[6][0][1][^1][1][1][0] = stmts
   if httpCodeBranches.len > 1:
     var stmts = newStmtList()
     for branch in httpCodeBranches:
       stmts.add(newIfStmt(branch))
-    errorHandlerProc[6][^1][2][1][0] = stmts
+    errorHandlerProc[6][0][1][^1][2][1][0] = stmts
   result.add(errorHandlerProc)
+
+  # TODO: Replace `body`, `headers`, `code` in routes with `result[i]` to
+  # get these shortcuts back without sacrificing usability.
+  # TODO2: Make sure you replace what `guessAction` used to do for this.
 
   # echo toStrLit(result)
   # echo treeRepr(result)

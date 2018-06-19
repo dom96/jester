@@ -164,3 +164,25 @@ routes:
     resp "OK: " & $error.data.code
 
   # TODO: Add explicit test for `resp Http404, "With Body!"`.
+
+  # before:
+  #   if request.pathInfo == "/before/global":
+  #     resp "Before/Global OK!"
+  # TODO: ??????????????!!!!!!??????????????
+
+  before re"/before/.*":
+    if request.pathInfo.startsWith("/before/restricted"):
+      # Halt should stop all processing and reply with the specified content.
+      halt "You cannot access this!"
+
+  get "/before/restricted":
+    resp "This should never be accessed!"
+
+  get "/before/available":
+    resp "This is accessible"
+
+  get "/after/added":
+    resp "Hello! "
+
+  after "/after/added":
+    result[3].add("Added by after!")

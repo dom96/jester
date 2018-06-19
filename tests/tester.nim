@@ -147,6 +147,23 @@ proc allTest(useStdLib: bool) =
       let resp = waitFor client.get(address & "/foo/404")
       check (waitFor resp.body) == "404 not found!!!"
 
+  suite "before/after":
+    test "before - halt":
+      let resp = waitFor client.get(address & "/foo/before/restricted")
+      check (waitFor resp.body) == "You cannot access this!"
+
+    test "before - unaffected":
+      let resp = waitFor client.get(address & "/foo/before/available")
+      check (waitFor resp.body) == "This is accessible"
+
+    test "before - 404":
+      let resp = waitFor client.get(address & "/foo/before/blah")
+      check resp.code == Http404
+
+    test "after - added":
+      let resp = waitFor client.get(address & "/foo/after/added")
+      check (waitFor resp.body) == "Hello! Added by after!"
+
 when isMainModule:
   try:
     allTest(useStdLib=false) # Test HttpBeast.
