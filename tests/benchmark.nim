@@ -6,25 +6,17 @@
 
 import jester, asyncdispatch, asyncnet
 
-when false:
+when true:
   routes:
     get "/":
-      let headers = {"Date": "Tue, 29 Apr 2014 23:40:08 GMT",
-          "Content-type": "text/plain; charset=utf-8"}
-      resp Http200, headers, "Hello World"
-
+      resp Http200, "Hello World"
 else:
-  proc match(request: PRequest, response: PResponse): Future[bool] {.async.} =
-    result = true
+  proc match(request: Request): Future[ResponseData] {.async.} =
     case request.path
     of "/":
-      let headers = {"Date": "Tue, 29 Apr 2014 23:40:08 GMT",
-            "Content-type": "text/plain; charset=utf-8"}
-      await response.send(Http200, headers.newStringTable(), "Hello World")
+      result = (TCActionSend, Http200, {:}.newHttpHeaders, "Hello World!", true)
     else:
-      await response.sendHeaders(Http404)
-      await response.send("Y'all got lost")
+      result = (TCActionSend, Http404, {:}.newHttpHeaders, "Y'all got lost", true)
 
-  jester.serve(match)
-
-runForever()
+  var j = initJester(match)
+  j.serve()
