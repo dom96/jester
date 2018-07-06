@@ -2,7 +2,7 @@
 # MIT License - Look at license.txt for details.
 import net, strtabs, re, tables, parseutils, os, strutils, uri,
        scgi, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
-       logging, httpcore, asyncfile, macrocache
+       logging, httpcore, asyncfile, macrocache, json
 
 import jester/private/[errorpages, utils]
 import jester/[request, patterns]

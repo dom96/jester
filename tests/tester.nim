@@ -100,6 +100,11 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/template")
     check (waitFor resp.body) == "Templates now work!"
 
+  test "json":
+    let resp = waitFor client.get(address & "/foo/json")
+    check resp.headers["Content-Type"] == "application/json"
+    check (waitFor resp.body) == """{"name":"Dominik"}"""
+
   suite "static":
     test "index.html":
       let resp = waitFor client.get(address & "/foo/root")

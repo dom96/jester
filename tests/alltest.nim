@@ -1,6 +1,7 @@
 # Copyright (C) 2018 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import jester, asyncdispatch, strutils, random, os, asyncnet, re, typetraits
+import json
 
 import alltest_router2
 
@@ -130,7 +131,7 @@ routes:
     resp Http404, "Template not working"
 
   get "/nil":
-    resp nil
+    resp nil.string
 
   get "/MyCustomError":
     raise newException(MyCustomError, "testing")
@@ -188,3 +189,10 @@ routes:
 
   after "/after/added":
     result[3].add("Added by after!")
+
+  get "/json":
+    var j = %*{
+      "name": "Dominik"
+    }
+
+    resp j
