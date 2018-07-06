@@ -415,6 +415,11 @@ template resp*(content: string, contentType = "text/html;charset=utf-8"): typed 
   result.matched = true
   break route
 
+template resp*(content: JsonNode): typed =
+  ## Serializes ``content`` as the response, sets ``Http200`` as status code
+  ## and "application/json" Content-Type.
+  resp($content, contentType="application/json")
+
 template resp*(code: HttpCode, content: string,
                contentType = "text/html;charset=utf-8"): typed =
   ## Sets ``content`` as the response; ``code`` as the status code
