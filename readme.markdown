@@ -3,18 +3,16 @@
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly
 creating web applications in Nim.
 
-**Note:** You're advised to use Nim devel with Jester, but 0.18.0 should also
-          work.
+**Note:** Starting with Jester 0.3.0, a devel version of Nim is required.
 
 ```nim
 # example.nim
-import jester, asyncdispatch, htmlgen
+import htmlgen
+import jester
 
 routes:
   get "/":
     resp h1("Hello world")
-
-runForever()
 ```
 
 Compile and run with:
@@ -150,7 +148,7 @@ The request object holds all the information about the current request.
 You can access it from a route using the ``request`` variable. It is defined as:
 
 ```nim
-PRequest* = ref object
+Request* = ref object
   params*: StringTableRef       ## Parameters from the pattern, but also the
                                 ## query string.
   matches*: array[MaxSubpatterns, string] ## Matches if this is a regex
@@ -183,32 +181,10 @@ PRequest* = ref object
 The code for this is pretty similar to the code for Sinatra given here: http://help.github.com/post-receive-hooks/
 
 ```nim
-import jester, asyncdispatch, json
+import jester, json
 
 routes:
   post "/":
     var push = parseJson(@"payload")
     resp "I got some JSON: " & $push
-
-runForever()
-```
-
-### Demo webapp
-
-```nim
-import jester, asyncdispatch, json
-import httpcore
-
-routes:
-  post "/receive_json":
-    try:
-      let j = parseJson(request.body)
-    except:
-      resp Http400, "Unable to parse JSON payload"
-
-  # Using an HTML template from http://nim-lang.org/docs/filters.html
-  get "/generated_page":
-    resp generateHTMLPage("foo", "bar", "baz")
-
-runForever()
 ```
