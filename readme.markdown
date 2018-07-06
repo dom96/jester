@@ -193,7 +193,7 @@ routes:
 runForever()
 ```
 
-### Demo webapp
+### Example webapp
 
 ```nim
 import jester, asyncdispatch, json
@@ -204,11 +204,16 @@ routes:
     try:
       let j = parseJson(request.body)
     except:
-      resp Http400, "Unable to parse JSON payload"
+      halt Http400, "Unable to parse JSON payload"
 
   # Using an HTML template from http://nim-lang.org/docs/filters.html
   get "/generated_page":
     resp generateHTMLPage("foo", "bar", "baz")
+
+  # Using dynamic routes and custom content types
+  let name = @"name"  # Remember to filter user-submitted data 
+  let json_response = %* {"hello": name} 
+    resp($json_response, contentType = "application/json") 
 
 runForever()
 ```
