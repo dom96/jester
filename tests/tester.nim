@@ -109,6 +109,10 @@ proc allTest(useStdLib: bool) =
       let resp = waitFor client.get(address & "/foo/root/test_file.txt")
       check (waitFor resp.body) == "Hello World!"
 
+    test "detects attempts to read parent dirs":
+      let resp = waitFor client.get(address & "/foo/root/../../tester.nim")
+      check resp.code == Http400
+
   suite "extends":
     test "simple":
       let resp = waitFor client.get(address & "/foo/internal/simple")
@@ -136,8 +140,8 @@ proc allTest(useStdLib: bool) =
       check (waitFor resp.body) == "Something went wrong: ref MyCustomError"
 
     test "HttpCode handling":
-      let resp = waitFor client.get(address & "/foo/400")
-      check (waitFor resp.body) == "OK: 400 Bad Request"
+      let resp = waitFor client.get(address & "/foo/403")
+      check (waitFor resp.body) == "OK: 403 Forbidden"
 
     test "`pass` in error handler":
       let resp = waitFor client.get(address & "/foo/401")

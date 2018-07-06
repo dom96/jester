@@ -149,19 +149,19 @@ routes:
 
   get "/401":
     resp Http401
-  get "/400":
-    resp Http400
+  get "/403":
+    resp Http403
 
-  error {Http400 .. Http408}:
+  error {Http401 .. Http408}:
     if error.data.code == Http401:
       pass
 
     doAssert error.data.code != Http401
-    resp "OK: " & $error.data.code
+    resp error.data.code, "OK: " & $error.data.code
 
-  error {Http400 .. Http408}:
+  error {Http401 .. Http408}:
     doAssert error.data.code == Http401
-    resp "OK: " & $error.data.code
+    resp error.data.code, "OK: " & $error.data.code
 
   # TODO: Add explicit test for `resp Http404, "With Body!"`.
 

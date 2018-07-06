@@ -277,19 +277,24 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
   if not respData.matched:
     # Find static file.
     # TODO: Caching.
-    let publicRequested = jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
-    var status = Http200
-    if existsDir(publicRequested):
-      status = await jes.sendStaticIfExists(
-        req,
-        @[publicRequested / "index.html", publicRequested / "index.htm"]
-      )
-    else:
-      status = await jes.sendStaticIfExists(req, @[publicRequested])
+    let path = normalizedPath(
+      jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
+    )
 
-    # Http200 means that the data was sent so there is nothing else to do.
-    if status == Http200:
-      return
+    # Verify that this isn't outside our static` dir.
+    var status = Http400
+    if path.splitFile.dir.startsWith(jes.settings.staticDir):
+      if existsDir(path):
+        status = await jes.sendStaticIfExists(
+          req,
+          @[path / "index.html", path / "index.htm"]
+        )
+      else:
+        status = await jes.sendStaticIfExists(req, @[path])
+
+      # Http200 means that the data was sent so there is nothing else to do.
+      if status == Http200:
+        return
 
     respData.code = status
     respData.action = TCActionSend
