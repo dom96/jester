@@ -156,6 +156,10 @@ proc allTest(useStdLib: bool) =
       let resp = waitFor client.get(address & "/foo/before/available")
       check (waitFor resp.body) == "This is accessible"
 
+    test "before - global":
+      let resp = waitFor client.get(address & "/foo/before/global")
+      check (waitFor resp.body) == "Before/Global: OK! After global `before`: OK!"
+
     test "before - 404":
       let resp = waitFor client.get(address & "/foo/before/blah")
       check resp.code == Http404

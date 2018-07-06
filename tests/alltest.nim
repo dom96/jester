@@ -165,10 +165,12 @@ routes:
 
   # TODO: Add explicit test for `resp Http404, "With Body!"`.
 
-  # before:
-  #   if request.pathInfo == "/before/global":
-  #     resp "Before/Global OK!"
-  # TODO: ??????????????!!!!!!??????????????
+  before:
+    if request.pathInfo == "/before/global":
+      resp "Before/Global: OK!"
+
+  get "/before/global":
+    resp result[3] & " After global `before`: OK!"
 
   before re"/before/.*":
     if request.pathInfo.startsWith("/before/restricted"):

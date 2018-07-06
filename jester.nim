@@ -720,6 +720,20 @@ proc createCheckActionIf(): NimNode =
   checkActionIf[0][0][0] = bindSym"checkAction"
   return checkActionIf
 
+proc createGlobalMetaRoute(routeNode, dest: NimNode) {.compileTime.} =
+  ## Creates a ``before`` or ``after`` route with no pattern, i.e. one which
+  ## will be always executed.
+
+  # -> block route: <ifStmtBody>
+  var innerBlockStmt = newStmtList(
+    newNimNode(nnkBlockStmt).add(newIdentNode("route"), routeNode[1].skipDo())
+  )
+
+  # -> block outerRoute: <innerBlockStmt>
+  var blockStmt = newNimNode(nnkBlockStmt).add(
+    newIdentNode("outerRoute"), innerBlockStmt)
+  dest.add blockStmt
+
 proc createRoute(
   routeNode, dest: NimNode, pathPrefix: string, isMetaRoute: bool = false
 ) {.compileTime.} =
@@ -727,7 +741,7 @@ proc createRoute(
   ## matches a route.
   ##
   ## The `isMetaRoute` parameter determines whether the route to be created is
-  ## a ``before`` or ``after`` route.
+  ## one of either a ``before`` or an ``after`` route.
 
   var patternMatchSym = genSym(nskLet, "patternMatchRet")
 
@@ -865,6 +879,15 @@ proc processRoutesBody(
 ) =
   for i in 0..<body.len:
     case body[i].kind
+    of nnkCall:
+      let cmdName = body[i][0].`$`.normalize
+      case cmdName
+      of "before":
+        createGlobalMetaRoute(body[i], beforeStmts)
+      of "after":
+        createGlobalMetaRoute(body[i], afterStmts)
+      else:
+        outsideStmts.add(body[i])
     of nnkCommand:
       let cmdName = body[i][0].`$`.normalize
       case cmdName
