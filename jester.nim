@@ -72,7 +72,7 @@ type
   TReqMeth: HttpMethod, ReqMeth: HttpMethod, TCallbackAction: CallbackAction,
   TCallback: Callback].}
 
-const jesterVer = "0.1.0"
+const jesterVer = "0.2.1"
 
 proc createHeaders(status: string, headers: StringTableRef): string =
   result = ""
@@ -307,13 +307,22 @@ proc handleRequest(jes: Jester, client: AsyncSocket,
   else:
     # Find static file.
     # TODO: Caching.
-    let publicRequested = jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
-    if existsDir(publicRequested):
+    let path = normalizedPath(
+      jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
+    )
+
+    # Verify that this isn't outside our static` dir.
+    var status = Http400
+    if not path.splitFile.dir.startsWith(jes.settings.staticDir):
+      await client.statusContent($Http400, $Http400, newStringTable())
+      return
+
+    if existsDir(path):
       await resp.sendStaticIfExists(req, jes,
-                                      @[publicRequested / "index.html",
-                                      publicRequested / "index.htm"])
+                                      @[path / "index.html",
+                                      path / "index.htm"])
     else:
-      await resp.sendStaticIfExists(req, jes, @[publicRequested])
+      await resp.sendStaticIfExists(req, jes, @[path])
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 

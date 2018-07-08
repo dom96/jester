@@ -1,6 +1,6 @@
 # Copyright (C) 2012 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import parseutils, strtabs, strutils, tables
+import parseutils, strtabs, strutils, tables, os
 from cgi import decodeUrl
 
 type
@@ -92,6 +92,48 @@ proc parseMPFD*(contentType: string, body: string): MultiData =
 
 when not declared(tables.getOrDefault):
   template getOrDefault*(tab, key): untyped = tab[key]
+
+when not declared(normalizePath) and not declared(normalizedPath):
+  proc normalizePath*(path: var string) =
+    ## Normalize a path.
+    ##
+    ## Consecutive directory separators are collapsed, including an initial double slash.
+    ##
+    ## On relative paths, double dot (..) sequences are collapsed if possible.
+    ## On absolute paths they are always collapsed.
+    ##
+    ## Warning: URL-encoded and Unicode attempts at directory traversal are not detected.
+    ## Triple dot is not handled.
+    let isAbs = isAbsolute(path)
+    var stack: seq[string] = @[]
+    for p in split(path, {DirSep}):
+      case p
+      of "", ".":
+        continue
+      of "..":
+        if stack.len == 0:
+          if isAbs:
+            discard  # collapse all double dots on absoluta paths
+          else:
+            stack.add(p)
+        elif stack[^1] == "..":
+          stack.add(p)
+        else:
+          discard stack.pop()
+      else:
+        stack.add(p)
+
+    if isAbs:
+      path = DirSep & join(stack, $DirSep)
+    elif stack.len > 0:
+      path = join(stack, $DirSep)
+    else:
+      path = "."
+
+  proc normalizedPath*(path: string): string =
+    ## Returns a normalized path for the current OS. See `<#normalizePath>`_
+    result = path
+    normalizePath(result)
 
 when isMainModule:
   var r = {:}.newStringTable
