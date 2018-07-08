@@ -6,6 +6,11 @@ This is a major new release containing many changes and improvements.
 Primary new addition is support for the brand new HttpBeast server which offers
 unparalleled performance and scalability across CPU cores.
 
+This release also fixes a **security vulnerability**. which even got a
+CVE number: CVE-2018-13034. If you are exposing Jester directly to outside users,
+i.e. without a reverse proxy (such as nginx), then you are vulnerable and
+should upgrade ASAP. See below for details.
+
 ### Modular routes
 
 Routes can now be separated into multiple `router` blocks and each block
@@ -61,6 +66,22 @@ routes:
     result[3] = "<content>foobar</content>"
 ```
 
+### CVE-2018-13034
+
+**The fix for this vulnerability has been backported to Jester v0.2.1.** Use it
+if you do not wish to upgrade to Jester v0.3.0 or are stuck with Nim 0.18.0
+or earlier.
+
+This vulnerability makes it possible for an attacker to access files outside
+your designated `static` directory. This can be done by requesting URLs such as
+https://localhost:5000/../webapp.nim. An attacker could potentially access
+anything on your filesystem using this method, as long as the running application
+had the necessary permissions to read the file.
+
+**Note:** It is recommended to always run Jester applications behind a reverse
+proxy such as nginx. If your application is running behind such a proxy then you
+are not vulnerable. Services such as cloudflare also protect against this
+form of attack.
 
 ### Other changes
 
@@ -70,6 +91,10 @@ routes:
 * HttpBeast support.
 * SameSite support for cookies.
 * Multi-core support.
+
+## 0.2.1 - 08/07/2018
+
+Fixes CVE-2018-13034. See above for details.
 
 ## 0.2.0 - 02/09/2017
 
