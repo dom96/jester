@@ -76,10 +76,6 @@ routes:
     attachment "public/root/index.html"
     resp "blah"
 
-  get "/error":
-    proc blah = raise newException(ESynch, "BLAH BLAH BLAH")
-    blah()
-
   # get "/live":
   #   await response.sendHeaders()
   #   for i in 0 .. 10:

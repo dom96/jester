@@ -117,6 +117,8 @@ proc allTest(useStdLib: bool) =
     test "detects attempts to read parent dirs":
       let resp = waitFor client.get(address & "/foo/root/../../tester.nim")
       check resp.code == Http400
+      let resp2 = waitFor client.get(address & "/foo/root/..%2f../tester.nim")
+      check resp2.code == Http400
 
   suite "extends":
     test "simple":
