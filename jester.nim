@@ -45,7 +45,7 @@ type
                         headers: HttpHeaders, content: string, matched: bool]
 
   CallbackAction* = enum
-    TCActionNothing, TCActionSend, TCActionRaw, TCActionPass,
+    TCActionNothing, TCActionSend, TCActionRaw, TCActionPass
 
   RouteErrorKind* = enum
     RouteException, RouteCode
@@ -128,7 +128,7 @@ proc send*(request: Request, status: HttpCode, headers: HttpHeaders,
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
 proc sendStaticIfExists(
-  jes: Jester, req: Request, paths: seq[string]
+  req: Request, paths: seq[string]
 ): Future[HttpCode] {.async.} =
   result = Http200
   for p in paths:
@@ -139,7 +139,7 @@ proc sendStaticIfExists(
         return Http403
 
       let fileSize = getFileSize(p)
-      let mimetype = jes.settings.mimes.getMimetype(p.splitFile.ext[1 .. ^1])
+      let mimetype = req.settings.mimes.getMimetype(p.splitFile.ext[1 .. ^1])
       if fileSize < 10_000_000: # 10 mb
         var file = readFile(p)
 
@@ -285,12 +285,12 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
     var status = Http400
     if path.splitFile.dir.startsWith(jes.settings.staticDir):
       if existsDir(path):
-        status = await jes.sendStaticIfExists(
+        status = await sendStaticIfExists(
           req,
           @[path / "index.html", path / "index.htm"]
         )
       else:
-        status = await jes.sendStaticIfExists(req, @[path])
+        status = await sendStaticIfExists(req, @[path])
 
       # Http200 means that the data was sent so there is nothing else to do.
       if status == Http200:
@@ -299,7 +299,8 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
     respData.code = status
     respData.action = TCActionSend
 
-  if respData.action == TCActionSend:
+  case respData.action
+  of TCActionSend:
     if (respData.code.is4xx or respData.code.is5xx) and
         not dispatchedError and respData.content.len == 0:
       respData = await dispatchError(jes, req, initRouteError(respData))
@@ -502,6 +503,18 @@ template attachment*(filename = ""): typed =
     if not result[2].hasKey("Content-Type") and ext != "":
       result[2]["Content-Type"] = getMimetype(request.settings.mimes, ext)
   result[2]["Content-Disposition"] = disposition
+
+template sendFile*(filename: string): typed =
+  ## Sends the file at the specified filename as the response.
+  result[0] = TCActionRaw
+  let sendFut = sendStaticIfExists(request, @[filename])
+  yield sendFut
+  let status = sendFut.read()
+  if status != Http200:
+    raise newException(JesterError, "Couldn't send requested file: " & filename)
+  # This will be set by our macro, so this is here for those not using it.
+  result.matched = true
+  break route
 
 template `@`*(s: string): untyped =
   ## Retrieves the parameter ``s`` from ``request.params``. ``""`` will be

@@ -18,6 +18,8 @@ type
     reusePort*: bool
     futureErrorHandler*: proc (fut: Future[void]) {.closure, gcsafe.}
 
+  JesterError* = object of Exception
+
 proc parseUrlQuery*(query: string, result: var Table[string, string])
     {.deprecated: "use stdlib".} =
   var i = 0

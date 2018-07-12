@@ -105,6 +105,10 @@ proc allTest(useStdLib: bool) =
     check resp.headers["Content-Type"] == "application/json"
     check (waitFor resp.body) == """{"name":"Dominik"}"""
 
+  test "sendFile":
+    let resp = waitFor client.get(address & "/foo/sendFile")
+    check (waitFor resp.body) == "Hello World!"
+
   suite "static":
     test "index.html":
       let resp = waitFor client.get(address & "/foo/root")

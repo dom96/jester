@@ -192,3 +192,9 @@ routes:
     }
 
     resp j
+
+  get "/path":
+    resp request.path
+
+  get "/sendFile":
+    sendFile(getCurrentDir() / "tests/public/root/test_file.txt")
