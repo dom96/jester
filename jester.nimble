@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.3.0"
+version       = "0.3.1"
 author        = "Dominik Picheta"
 description   = "A sinatra-like web framework for Nim."
 license       = "MIT"

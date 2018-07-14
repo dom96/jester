@@ -1,7 +1,7 @@
 # Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
 import net, strtabs, re, tables, parseutils, os, strutils, uri,
-       scgi, times, mimetypes, asyncnet, asyncdispatch, macros, md5,
+       times, mimetypes, asyncnet, asyncdispatch, macros, md5,
        logging, httpcore, asyncfile, macrocache, json
 
 import jester/private/[errorpages, utils]
@@ -56,7 +56,7 @@ type
     of RouteCode:
       data: ResponseData
 
-const jesterVer = "0.3.0"
+const jesterVer = "0.3.1"
 
 proc createHeaders(status: HttpCode, headers: HttpHeaders): string =
   result = ""
