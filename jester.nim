@@ -58,27 +58,37 @@ type
 
 const jesterVer = "0.3.1"
 
-proc createHeaders(status: HttpCode, headers: HttpHeaders): string =
+proc createHeaders(headers: HttpHeaders): string =
   result = ""
   if headers != nil:
     for key, value in headers:
       result.add(key & ": " & value & "\c\L")
-  result = "HTTP/1.1 " & $status & "\c\L" & result & "\c\L"
 
-proc sendImm(request: Request, content: string) =
+    result = result[0 .. ^3] # Strip trailing \c\L
+
+proc createResponse(status: HttpCode, headers: HttpHeaders): string =
+  return "HTTP/1.1 " & $status & "\c\L" & createHeaders(headers) & "\c\L\c\L"
+
+proc unsafeSend(request: Request, content: string) =
   when useHttpBeast:
     request.getNativeReq.unsafeSend(content)
   else:
     # TODO: This may cause issues if we send too fast.
     asyncCheck request.getNativeReq.client.send(content)
 
+proc send(
+  request: Request, code: HttpCode, headers: HttpHeaders, body: string
+) =
+  when useHttpBeast:
+    request.getNativeReq.send(code, body, headers.createHeaders)
+  else:
+    # TODO: This may cause issues if we send too fast.
+    asyncCheck request.getNativeReq.respond(code, body, headers)
+
 proc statusContent(request: Request, status: HttpCode, content: string,
                    headers: HttpHeaders) =
-  var newHeaders = headers
-  newHeaders["Content-Length"] = $content.len
-  let headerData = createHeaders(status, headers)
   try:
-    sendImm(request, headerData & content)
+    send(request, status, headers, content)
     logging.debug("  $1 $2" % [$status, $headers])
   except:
     logging.error("Could not send response: $1" % osErrorMsg(osLastError()))
@@ -92,14 +102,14 @@ proc send*(request: Request, content: string) =
   ## Sends ``content`` immediately to the client socket.
   ##
   ## Routes using this procedure must enable raw mode.
-  sendImm(request, content)
+  unsafeSend(request, content)
 
 proc sendHeaders*(request: Request, status: HttpCode,
                   headers: HttpHeaders) =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
-  let headerData = createHeaders(status, headers)
+  let headerData = createResponse(status, headers)
   try:
     request.send(headerData)
     logging.debug("  $1 $2" % [$status, $headers])
@@ -171,7 +181,7 @@ proc sendStaticIfExists(
         while true:
           let (hasValue, value) = await fileStream.read()
           if hasValue:
-            req.sendImm(value)
+            req.unsafeSend(value)
           else:
             break
         file.close()
