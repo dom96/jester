@@ -2,7 +2,7 @@
 # MIT License - Look at license.txt for details.
 import net, strtabs, re, tables, parseutils, os, strutils, uri,
        times, mimetypes, asyncnet, asyncdispatch, macros, md5,
-       logging, httpcore, asyncfile, macrocache, json
+       logging, httpcore, asyncfile, macrocache, json, options
 
 import jester/private/[errorpages, utils]
 import jester/[request, patterns]
@@ -485,8 +485,9 @@ template resp*(code: HttpCode,
   break route
 
 template setHeader(headers: var Option[HttpHeaders], key, value: string): typed =
-  if headers.isNone():
-    headers = {key: value}.newHttpHeaders().some()
+  bind isNone
+  if isNone(headers):
+    headers = some({key: value}.newHttpHeaders())
   else:
     headers.get()[key] = value
 
@@ -560,7 +561,7 @@ template halt*(code: HttpCode,
   bind TCActionSend, newHttpHeaders
   result[0] = TCActionSend
   result[1] = code
-  result[2] = headers.newHttpHeaders.some()
+  result[2] = some(headers.newHttpHeaders)
   result[3] = content
   result.matched = true
   break allRoutes
@@ -587,7 +588,7 @@ template attachment*(filename = ""): typed =
     disposition.add("; filename=\"" & extractFilename(filename) & "\"")
     let ext = splitFile(filename).ext
     let contentTypeSet =
-      result[2].isSome() and result[2].get().hasKey("Content-Type")
+      isSome(result[2]) and result[2].get().hasKey("Content-Type")
     if not contentTypeSet and ext != "":
       setHeader(result[2], "Content-Type", getMimetype(request.settings.mimes, ext))
   setHeader(result[2], "Content-Disposition", disposition)
