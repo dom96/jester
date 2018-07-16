@@ -1,4 +1,4 @@
-import uri, cgi, tables, logging, strutils, re
+import uri, cgi, tables, logging, strutils, re, options
 
 import jester/private/utils
 
@@ -17,7 +17,7 @@ else:
 type
   Request* = object
     req: NativeRequest
-    patternParams: Table[string, string]
+    patternParams: Option[Table[string, string]]
     reMatches: array[MaxSubpatterns, string]
     settings*: Settings
 
@@ -76,7 +76,10 @@ proc ip*(req: Request): string =
 
 proc params*(req: Request): Table[string, string] =
   ## Parameters from the pattern and the query string.
-  result = req.patternParams
+  if req.patternParams.isSome():
+    result = req.patternParams.get()
+  else:
+    result = initTable[string, string]()
 
   when useHttpBeast:
     let query = req.req.path.get("").parseUri().query
@@ -161,10 +164,9 @@ proc cookies*(req: Request): Table[string, string] =
 
 #[ Protected procs ]#
 
-proc initRequest*(req: NativeRequest, settings: Settings): Request =
+proc initRequest*(req: NativeRequest, settings: Settings): Request {.inline.} =
   Request(
     req: req,
-    patternParams: initTable[string, string](),
     settings: settings
   )
 
@@ -173,7 +175,7 @@ proc getNativeReq*(req: Request): NativeRequest =
 
 #[ Only to be used by our route macro. ]#
 proc setPatternParams*(req: var Request, p: Table[string, string]) =
-  req.patternParams = p
+  req.patternParams = some(p)
 
 proc setReMatches*(req: var Request, r: array[MaxSubpatterns, string]) =
   req.reMatches = r
