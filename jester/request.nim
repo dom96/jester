@@ -46,11 +46,14 @@ proc path*(req: Request): string =
   ## Path of request without the query string.
   when useHttpBeast:
     let p = req.req.path.get("")
-    let u = parseUri(p)
+    let queryStart = p.find('?')
+    if unlikely(queryStart != -1):
+      return p[0 .. queryStart]
+    else:
+      return p
   else:
     let u = req.req.url
-
-  return u.path
+    return u.path
 
 proc reqMethod*(req: Request): HttpMethod =
   ## Request method, eg. HttpGet, HttpPost

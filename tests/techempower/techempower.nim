@@ -16,7 +16,10 @@ when false:
       resp data, "text/plain"
 else:
   proc match(request: Request): ResponseData =
-    result = (TCActionSend, Http200, none[HttpHeaders](), "Hello, World!", true)
+    if request.path == "/plaintext":
+      result = (TCActionSend, Http200, none[HttpHeaders](), "Hello, World!", true)
+    else:
+      result = (TCActionSend, Http404, none[HttpHeaders](), "404", true)
 
   var j = initJester(match, settings)
   j.serve()
