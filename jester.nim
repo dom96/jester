@@ -48,7 +48,7 @@ type
     errorHandlers: seq[ErrorProc]
 
   MatchType* = enum
-    MRegex, MSpecial
+    MRegex, MSpecial, MStatic
 
   ResponseData* = tuple[
     action: CallbackAction,
@@ -698,7 +698,7 @@ proc normalizeUri*(uri: string): string =
 
 # -- Macro
 
-proc checkAction(respData: var ResponseData): bool =
+proc checkAction*(respData: var ResponseData): bool =
   case respData.action
   of TCActionSend, TCActionRaw:
     result = true
@@ -748,7 +748,7 @@ proc ctParsePattern(pattern, pathPrefix: string): NimNode {.compiletime.} =
       newStrLitNode(node.text),
       newIdentNode(if node.optional: "true" else: "false"))
 
-template setDefaultResp(): typed =
+template setDefaultResp*(): typed =
   # TODO: bindSym this in the 'routes' macro and put it in each route
   bind TCActionNothing, newHttpHeaders
   result.action = TCActionNothing
@@ -799,7 +799,11 @@ proc createRegexPattern(
 proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   case pattern.kind
   of nnkStrLit:
-    return MSpecial
+    var patt = parsePattern(pattern.strVal)
+    if patt.len == 1 and patt[0].typ == NodeText:
+      return MStatic
+    else:
+      return MSpecial
   of nnkCallStrLit:
     expectKind(pattern[0], nnkIdent)
     case ($pattern[0]).normalize
@@ -849,6 +853,8 @@ proc createRoute(
 
   let patternType = determinePatternType(routeNode[1])
   case patternType
+  of MStatic:
+    discard
   of MSpecial:
     dest.add createJesterPattern(routeNode, patternMatchSym, pathPrefix)
   of MRegex:
@@ -859,6 +865,7 @@ proc createRoute(
 
   var ifStmtBody = newStmtList()
   case patternType
+  of MStatic: discard
   of MSpecial:
     # -> setPatternParams(request, ret.params)
     ifStmtBody.add newCall(bindSym"setPatternParams", newIdentNode"request",
@@ -883,6 +890,8 @@ proc createRoute(
 
   let ifCond =
     case patternType
+    of MStatic:
+      infix(parseExpr("request.pathInfo"), "==", routeNode[1])
     of MSpecial:
       newDotExpr(patternMatchSym, newIdentNode("matched"))
     of MRegex:
