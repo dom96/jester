@@ -5,7 +5,7 @@ import jester, jester/patterns
 settings:
   port = Port(8080)
 
-when false:
+when true:
   routes:
     get "/json":
       const data = $(%*{"message": "Hello, World!"})
@@ -14,7 +14,7 @@ when false:
     get "/plaintext":
       const data = "Hello, World!"
       resp data, "text/plain"
-elif true:
+elif false:
   proc match(request: Request): ResponseData {.gcsafe.} =
     block allRoutes:
         setDefaultResp()
@@ -46,10 +46,10 @@ elif true:
   j.serve()
 else:
   proc match(request: Request): ResponseData =
-    if request.path == "/plaintext":
-      result = (TCActionSend, Http200, none[HttpHeaders](), "Hello, World!", true)
+    if request.pathInfo == "/plaintext":
+      result = (TCActionSend, Http200, some[RawHeaders](@{"Content-Type": "text/plain"}), "Hello, World!", true)
     else:
-      result = (TCActionSend, Http404, none[HttpHeaders](), "404", true)
+      result = (TCActionSend, Http404, none[RawHeaders](), "404", true)
 
   var j = initJester(match, settings)
   j.serve()

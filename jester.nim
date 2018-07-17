@@ -27,7 +27,7 @@ else:
 
 type
   MatchProc* = proc (request: Request): Future[ResponseData] {.gcsafe, closure.}
-  MatchProcSync* = proc (request: Request): ResponseData{.noSideEffect, gcsafe, locks: 0.}
+  MatchProcSync* = proc (request: Request): ResponseData{.gcsafe, locks: 0.}
 
   Matcher = object
     case async: bool
@@ -1062,6 +1062,18 @@ proc processRoutesBody(
     else:
       outsideStmts.add(body[i])
 
+proc needsAsync(node: NimNode): bool =
+  case node.kind
+  of nnkCommand, nnkCall:
+    if node[0].kind == nnkIdent and node[0].strVal.normalize == "await":
+      return true
+  of nnkYieldStmt:
+    return true
+  else: discard
+
+  for c in node:
+    if needsAsync(c): return true
+
 proc routesEx(name: string, body: NimNode): NimNode =
   # echo(treeRepr(body))
   # echo(treeRepr(name))
@@ -1079,8 +1091,8 @@ proc routesEx(name: string, body: NimNode): NimNode =
   var matchBody = newNimNode(nnkStmtList)
   let setDefaultRespIdent = bindSym"setDefaultResp"
   matchBody.add newCall(setDefaultRespIdent)
-  # TODO: This might kill performance, but we need to store the
-  # TODO: re/pattern match pattern values somewhere...
+  # TODO: This diminishes the performance. Would be nice to only include it
+  # TODO: when setPatternParams or setReMatches is used.
   matchBody.add parseExpr("var request = request")
 
   # HTTP router case statement nodes:
@@ -1192,11 +1204,19 @@ proc routesEx(name: string, body: NimNode): NimNode =
 
   let matchIdent = newIdentNode(name)
   let reqIdent = newIdentNode("request")
-  var matchProc = quote do:
-    proc `matchIdent`(
-      `reqIdent`: Request
-    ): Future[ResponseData] {.async, gcsafe.} =
-      discard
+  var matchProc =
+    if needsAsync(body):
+      quote do:
+        proc `matchIdent`(
+          `reqIdent`: Request
+        ): Future[ResponseData] {.async, gcsafe.} =
+          discard
+    else:
+      quote do:
+        proc `matchIdent`(
+          `reqIdent`: Request
+        ): ResponseData {.gcsafe.} =
+          discard
 
   # The following `block` is for `halt`. (`return` didn't work :/)
   let allRoutesBlock = newTree(
