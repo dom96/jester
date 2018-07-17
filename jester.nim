@@ -354,12 +354,11 @@ proc handleRequestSlow(
 
 proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
   var req = initRequest(httpReq, jes.settings)
+  try:
+    when not defined(release):
+      logging.debug("$1 $2" % [$req.reqMethod, req.pathInfo])
 
-  when not defined(release):
-    logging.debug("$1 $2" % [$req.reqMethod, req.pathInfo])
-
-  if likely(jes.matchers.len == 1 and not jes.matchers[0].async):
-    try:
+    if likely(jes.matchers.len == 1 and not jes.matchers[0].async):
       let respData = jes.matchers[0].syncProc(req)
       if likely(respData.matched):
         statusContent(
@@ -370,12 +369,12 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
         )
       else:
         return handleRequestSlow(jes, req, respData, false)
-    except:
-      let exc = getCurrentException()
-      let respDataFut = dispatchError(jes, req, initRouteError(exc))
-      return handleRequestSlow(jes, req, respDataFut, true)
-  else:
-    return handleRequestSlow(jes, req, dispatch(jes, req), false)
+    else:
+      return handleRequestSlow(jes, req, dispatch(jes, req), false)
+  except:
+    let exc = getCurrentException()
+    let respDataFut = dispatchError(jes, req, initRouteError(exc))
+    return handleRequestSlow(jes, req, respDataFut, true)
 
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",

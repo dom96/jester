@@ -1,6 +1,6 @@
 # Copyright (C) 2018 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import unittest, httpclient, strutils, asyncdispatch, os
+import unittest, httpclient, strutils, asyncdispatch, os, terminal
 from osproc import execCmd
 
 import asynctools
@@ -15,9 +15,9 @@ proc readLoop(process: AsyncProcess) {.async.} =
     var buf = newString(256)
     let len = await readInto(process.outputHandle, addr buf[0], 256)
     buf.setLen(len)
-    echo("Process:", buf.strip())
+    styledEcho(fgBlue, "Process: ", resetStyle, buf.strip())
 
-  echo("Process terminated")
+  styledEcho(fgRed, "Process terminated")
 
 proc startServer(file: string, useStdLib: bool) {.async.} =
   var file = "tests" / file
@@ -43,13 +43,13 @@ proc startServer(file: string, useStdLib: bool) {.async.} =
 
   for i in 0..10:
     var client = newAsyncHttpClient()
-    echo("Getting ", address)
+    styledEcho(fgBlue, "Getting ", address)
     let fut = client.get(address)
     yield fut or sleepAsync(3000)
     if not fut.finished:
-      echo("Timed out")
+      styledEcho(fgYellow, "Timed out")
     elif not fut.failed:
-      echo("Server started!")
+      styledEcho(fgGreen, "Server started!")
       return
     else: echo fut.error.msg
     client.close()
@@ -60,6 +60,11 @@ proc startServer(file: string, useStdLib: bool) {.async.} =
 proc allTest(useStdLib: bool) =
   waitFor startServer("alltest.nim", useStdLib)
   var client = newAsyncHttpClient(maxRedirects = 0)
+
+  test "doesn't crash on missing script name":
+    # If this fails then alltest is likely not running.
+    let resp = waitFor client.get(address & "/foo/")
+    check resp.code.is5xx
 
   test "can access root":
     # If this fails then alltest is likely not running.
