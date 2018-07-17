@@ -28,7 +28,7 @@ else:
 
 type
   MatchProc* = proc (request: Request): Future[ResponseData] {.gcsafe, closure.}
-  MatchProcSync* = proc (request: Request): ResponseData{.gcsafe, locks: 0.}
+  MatchProcSync* = proc (request: Request): ResponseData{.gcsafe, closure.}
 
   Matcher = object
     case async: bool
@@ -491,7 +491,17 @@ template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
   if isNone(headers):
     headers = some(@({key: value}))
   else:
-    headers = some(headers.get() & @({key: value}))
+    block outer:
+      # Overwrite key if it exists.
+      var h = headers.get()
+      for i in 0 ..< h.len:
+        if h[i][0] == key:
+          h[i][1] = value
+          headers = some(h)
+          break outer
+
+      # Add key if it doesn't exist.
+      headers = some(h & @({key: value}))
 
 template resp*(content: string, contentType = "text/html;charset=utf-8"): typed =
   ## Sets ``content`` as the response; ``Http200`` as the status code
@@ -680,13 +690,11 @@ template setCookie*(name, value: string, expires="",
   ## supported by some browsers:
   ## https://caniuse.com/#feat=same-site-cookie-attribute
   let newCookie = makeCookie(name, value, expires)
-  if result[2].hasKey("Set-Cookie"):
-    # A wee bit of a hack here. Multiple Set-Cookie headers are allowed.
-    var setCookieVal: string = result[2]["Set-Cookie"]
-    setCookieVal.add("\c\LSet-Cookie:" & newCookie)
-    result[2]["Set-Cookie"] = setCookieVal
+  if isSome(result[2]) and
+     (let headers = result[2].get(); headers.toTable.hasKey("Set-Cookie")):
+    result[2] = some(headers & @({"Set-Cookie": newCookie}))
   else:
-    result[2]["Set-Cookie"] = newCookie
+    setHeader(result[2], "Set-Cookie", newCookie)
 
 template setCookie*(name, value: string, expires: DateTime,
                     sameSite: SameSite=Lax): typed =
