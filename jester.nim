@@ -111,7 +111,7 @@ proc statusContent(request: Request, status: HttpCode, content: string,
                    headers: Option[RawHeaders]) =
   try:
     send(request, status, headers, content)
-    when defined(debug):
+    when not defined(release):
       logging.debug("  $1 $2" % [$status, $headers])
   except:
     logging.error("Could not send response: $1" % osErrorMsg(osLastError()))
@@ -355,7 +355,7 @@ proc handleRequestSlow(
 proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
   var req = initRequest(httpReq, jes.settings)
 
-  when defined(debug):
+  when not defined(release):
     logging.debug("$1 $2" % [$req.reqMethod, req.pathInfo])
 
   if likely(jes.matchers.len == 1 and not jes.matchers[0].async):
