@@ -2,7 +2,8 @@
 # MIT License - Look at license.txt for details.
 import net, strtabs, re, tables, parseutils, os, strutils, uri,
        times, mimetypes, asyncnet, asyncdispatch, macros, md5,
-       logging, httpcore, asyncfile, macrocache, json, options
+       logging, httpcore, asyncfile, macrocache, json, options,
+       strformat
 
 import jester/private/[errorpages, utils]
 import jester/[request, patterns]
@@ -50,7 +51,7 @@ type
   MatchType* = enum
     MRegex, MSpecial, MStatic
 
-  RawHeaders* = seq[tuple[key, value: string]]
+  RawHeaders* = seq[tuple[key, val: string]]
   ResponseData* = tuple[
     action: CallbackAction,
     code: HttpCode,
@@ -103,7 +104,7 @@ proc send(
   else:
     # TODO: This may cause issues if we send too fast.
     asyncCheck request.getNativeReq.respond(
-      code, body, headers.get({:}).newHttpHeaders()
+      code, body, newHttpHeaders(headers.get(@({:})))
     )
 
 proc statusContent(request: Request, status: HttpCode, content: string,
@@ -554,7 +555,7 @@ template cond*(condition: bool): typed =
   if not condition: break outerRoute
 
 template halt*(code: HttpCode,
-               headers: varargs[tuple[key, val: string]],
+               headers: openarray[tuple[key, val: string]],
                content: string): typed =
   ## Immediately replies with the specified request. This means any further
   ## code will not be executed after calling this template in the current
@@ -562,7 +563,7 @@ template halt*(code: HttpCode,
   bind TCActionSend, newHttpHeaders
   result[0] = TCActionSend
   result[1] = code
-  result[2] = some(headers.newHttpHeaders)
+  result[2] = some(@headers)
   result[3] = content
   result.matched = true
   break allRoutes
@@ -589,7 +590,7 @@ template attachment*(filename = ""): typed =
     disposition.add("; filename=\"" & extractFilename(filename) & "\"")
     let ext = splitFile(filename).ext
     let contentTypeSet =
-      isSome(result[2]) and result[2].get().hasKey("Content-Type")
+      isSome(result[2]) and result[2].get().toTable.hasKey("Content-Type")
     if not contentTypeSet and ext != "":
       setHeader(result[2], "Content-Type", getMimetype(request.settings.mimes, ext))
   setHeader(result[2], "Content-Disposition", disposition)
@@ -892,7 +893,11 @@ proc createRoute(
   let ifCond =
     case patternType
     of MStatic:
-      infix(parseExpr("request.pathInfo"), "==", routeNode[1])
+      infix(
+        parseExpr("request.pathInfo"),
+        "==",
+        newStrLitNode(pathPrefix & routeNode[1].strVal)
+      )
     of MSpecial:
       newDotExpr(patternMatchSym, newIdentNode("matched"))
     of MRegex:
@@ -1059,20 +1064,45 @@ proc processRoutesBody(
         outsideStmts.add(body[i])
     of nnkCommentStmt:
       discard
+    of nnkPragma:
+      if body[i][0].strVal.normalize notin ["async", "sync"]:
+        outsideStmts.add(body[i])
     else:
       outsideStmts.add(body[i])
 
-proc needsAsync(node: NimNode): bool =
+type
+  NeedsAsync = enum
+    ImplicitTrue, ImplicitFalse, ExplicitTrue, ExplicitFalse
+proc needsAsync(node: NimNode): NeedsAsync =
+  result = ImplicitFalse
   case node.kind
   of nnkCommand, nnkCall:
-    if node[0].kind == nnkIdent and node[0].strVal.normalize == "await":
-      return true
+    if node[0].kind == nnkIdent:
+      case node[0].strVal.normalize
+      of "await", "sendFile":
+        return ImplicitTrue
+      of "resp", "halt", "attachment", "pass", "redirect", "cond", "get",
+         "post", "patch", "delete":
+        # This is just a simple heuristic. It's by no means meant to be
+        # exhaustive.
+        return ImplicitFalse
+      else:
+        return ImplicitTrue
   of nnkYieldStmt:
-    return true
+    return ImplicitTrue
+  of nnkPragma:
+    if node[0].kind == nnkIdent:
+      case node[0].strVal.normalize
+      of "sync":
+        return ExplicitFalse
+      of "async":
+        return ExplicitTrue
+      else: discard
   else: discard
 
   for c in node:
-    if needsAsync(c): return true
+    let r = needsAsync(c)
+    if r in {ImplicitTrue, ExplicitTrue, ExplicitFalse}: return r
 
 proc routesEx(name: string, body: NimNode): NimNode =
   # echo(treeRepr(body))
@@ -1204,8 +1234,14 @@ proc routesEx(name: string, body: NimNode): NimNode =
 
   let matchIdent = newIdentNode(name)
   let reqIdent = newIdentNode("request")
+  let needsAsync = needsAsync(body)
+  case needsAsync
+  of ImplicitFalse, ExplicitFalse:
+    hint(fmt"Synchronous route `{name}` has been optimised. Use `{{.async.}}` to change.")
+  of ImplicitTrue, ExplicitTrue:
+    hint(fmt"Asynchronous route: {name}.")
   var matchProc =
-    if needsAsync(body):
+    if needsAsync in {ImplicitTrue, ExplicitTrue}:
       quote do:
         proc `matchIdent`(
           `reqIdent`: Request
