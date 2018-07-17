@@ -1092,7 +1092,7 @@ proc needsAsync(node: NimNode): NeedsAsync =
          "post", "patch", "delete":
         # This is just a simple heuristic. It's by no means meant to be
         # exhaustive.
-        return ImplicitFalse
+        discard
       else:
         return ImplicitTrue
   of nnkYieldStmt:
