@@ -50,10 +50,11 @@ type
   MatchType* = enum
     MRegex, MSpecial, MStatic
 
+  RawHeaders* = seq[tuple[key, value: string]]
   ResponseData* = tuple[
     action: CallbackAction,
     code: HttpCode,
-    headers: Option[HttpHeaders],
+    headers: Option[RawHeaders],
     content: string,
     matched: bool
   ]
@@ -72,15 +73,16 @@ type
 
 const jesterVer = "0.3.1"
 
-proc createHeaders(headers: HttpHeaders): string =
+proc createHeaders(headers: RawHeaders): string =
   result = ""
   if headers != nil:
-    for key, value in headers:
+    for header in headers:
+      let (key, value) = header
       result.add(key & ": " & value & "\c\L")
 
     result = result[0 .. ^3] # Strip trailing \c\L
 
-proc createResponse(status: HttpCode, headers: HttpHeaders): string =
+proc createResponse(status: HttpCode, headers: RawHeaders): string =
   return "HTTP/1.1 " & $status & "\c\L" & createHeaders(headers) & "\c\L\c\L"
 
 proc unsafeSend(request: Request, content: string) =
@@ -91,7 +93,7 @@ proc unsafeSend(request: Request, content: string) =
     asyncCheck request.getNativeReq.client.send(content)
 
 proc send(
-  request: Request, code: HttpCode, headers: Option[HttpHeaders], body: string
+  request: Request, code: HttpCode, headers: Option[RawHeaders], body: string
 ) =
   when useHttpBeast:
     let h =
@@ -101,11 +103,11 @@ proc send(
   else:
     # TODO: This may cause issues if we send too fast.
     asyncCheck request.getNativeReq.respond(
-      code, body, headers.get({:}.newHttpHeaders())
+      code, body, headers.get({:}).newHttpHeaders()
     )
 
 proc statusContent(request: Request, status: HttpCode, content: string,
-                   headers: Option[HttpHeaders]) =
+                   headers: Option[RawHeaders]) =
   try:
     send(request, status, headers, content)
     when defined(debug):
@@ -125,7 +127,7 @@ proc send*(request: Request, content: string) =
   unsafeSend(request, content)
 
 proc sendHeaders*(request: Request, status: HttpCode,
-                  headers: HttpHeaders) =
+                  headers: RawHeaders) =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
@@ -139,7 +141,7 @@ proc sendHeaders*(request: Request, status: HttpCode,
 proc sendHeaders*(request: Request, status: HttpCode) =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
-  let headers = {"Content-Type": "text/html;charset=utf-8"}.newHttpHeaders()
+  let headers = @({"Content-Type": "text/html;charset=utf-8"})
   request.sendHeaders(status, headers)
 
 proc sendHeaders*(request: Request) =
@@ -147,12 +149,11 @@ proc sendHeaders*(request: Request) =
   ## client socket immediately.
   request.sendHeaders(Http200)
 
-proc send*(request: Request, status: HttpCode, headers: HttpHeaders,
+proc send*(request: Request, status: HttpCode, headers: RawHeaders,
            content: string) =
   ## Sends out a HTTP response comprising of the ``status``, ``headers`` and
   ## ``content`` specified.
-  var headers = headers
-  headers["Content-Length"] = $content.len
+  var headers = headers & @({"Content-Length": $content.len})
   request.sendHeaders(status, headers)
   request.send(content)
 
@@ -178,17 +179,17 @@ proc sendStaticIfExists(
         # If the user has a cached version of this file and it matches our
         # version, let them use it
         if req.headers.hasKey("If-None-Match") and req.headers["If-None-Match"] == hashed:
-          req.statusContent(Http304, "", none[HttpHeaders]())
+          req.statusContent(Http304, "", none[RawHeaders]())
         else:
-          req.statusContent(Http200, file, {
+          req.statusContent(Http200, file, some(@({
                               "Content-Type": mimetype,
                               "ETag": hashed
-                            }.newHttpHeaders.some())
+                            })))
       else:
-        let headers = {
+        let headers = @({
           "Content-Type": mimetype,
           "Content-Length": $fileSize
-        }.newHttpHeaders
+        })
         req.statusContent(Http200, "", some(headers))
 
         var fileStream = newFutureStream[string]("sendStaticIfExists")
@@ -221,9 +222,9 @@ proc defaultErrorFilter(error: RouteError): ResponseData =
 
     let error = traceback & errorMsg
     logging.error(error)
-    result.headers = {
+    result.headers = some(@({
       "Content-Type": "text/html;charset=utf-8"
-    }.newHttpHeaders.some()
+    }))
     result.content = routeException(
       error.replace("\n", "<br/>\n"),
       jesterVer
@@ -232,9 +233,9 @@ proc defaultErrorFilter(error: RouteError): ResponseData =
     result.matched = true
     result.action = TCActionSend
   of RouteCode:
-    result.headers = {
+    result.headers = some(@({
       "Content-Type": "text/html;charset=utf-8"
-    }.newHttpHeaders.some()
+    }))
     result.content = error(
       $error.data.code,
       jesterVer
@@ -305,7 +306,7 @@ proc handleFileRequest(
     if status == Http200:
       return
 
-  return (TCActionSend, status, none[HttpHeaders](), "", true)
+  return (TCActionSend, status, none[seq[(string, string)]](), "", true)
 
 proc handleRequestSlow(
   jes: Jester,
@@ -484,12 +485,12 @@ template resp*(code: HttpCode,
   result = (TCActionSend, code, headers.newHttpHeaders.some(), content, true)
   break route
 
-template setHeader(headers: var Option[HttpHeaders], key, value: string): typed =
+template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
   bind isNone
   if isNone(headers):
-    headers = some({key: value}.newHttpHeaders())
+    headers = some(@({key: value}))
   else:
-    headers.get()[key] = value
+    headers = some(headers.get() & @({key: value}))
 
 template resp*(content: string, contentType = "text/html;charset=utf-8"): typed =
   ## Sets ``content`` as the response; ``Http200`` as the status code
