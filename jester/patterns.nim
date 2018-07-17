@@ -22,7 +22,13 @@ proc parsePattern*(pattern: string): Pattern =
       newNode.text = theText
       newNode.optional = isOptional
       result.add(newNode)
-  
+
+  template `{}`(s: string, i: int): char =
+    if i >= len(s):
+      '\0'
+    else:
+      s[i]
+
   var i = 0
   var text = ""
   while i < pattern.len():
@@ -36,11 +42,11 @@ proc parsePattern*(pattern: string): Pattern =
       inc(i) # Skip @
       var nparam = ""
       i += pattern.parseUntil(nparam, {'/', '?'}, i)
-      var optional = pattern[i] == '?'
+      var optional = pattern{i} == '?'
       result.addNode(NodeField, nparam, optional)
-      if pattern[i] == '?': inc(i) # Only skip ?. / should not be skipped.
+      if pattern{i} == '?': inc(i) # Only skip ?. / should not be skipped.
     of '?':
-      var optionalChar = text[text.len-1]
+      var optionalChar = text[^1]
       setLen(text, text.len-1) # Truncate ``text``.
       # Add the stored text.
       if text != "":
@@ -54,13 +60,10 @@ proc parsePattern*(pattern: string): Pattern =
       if pattern[i] notin {'?', '@', '\\'}:
         raise newException(ValueError, 
                 "This character does not require escaping: " & pattern[i])
-      text.add(pattern[i])
+      text.add(pattern{i})
       inc i # Skip ``pattern[i]``
-      
-      
-      
     else:
-      text.add(pattern[i])
+      text.add(pattern{i})
       inc(i)
   
   if text != "":
