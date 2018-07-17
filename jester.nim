@@ -1086,7 +1086,7 @@ proc needsAsync(node: NimNode): NeedsAsync =
   of nnkCommand, nnkCall:
     if node[0].kind == nnkIdent:
       case node[0].strVal.normalize
-      of "await", "sendFile":
+      of "await", "sendfile":
         return ImplicitTrue
       of "resp", "halt", "attachment", "pass", "redirect", "cond", "get",
          "post", "patch", "delete":
