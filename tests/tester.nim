@@ -63,7 +63,7 @@ proc allTest(useStdLib: bool) =
 
   test "doesn't crash on missing script name":
     # If this fails then alltest is likely not running.
-    let resp = waitFor client.get(address & "/foo/")
+    let resp = waitFor client.get(address)
     check resp.code.is5xx
 
   test "can access root":
