@@ -74,6 +74,9 @@ type
 
 const jesterVer = "0.3.1"
 
+proc toStr(headers: Option[RawHeaders]): string =
+  return $newHttpHeaders(headers.get(@({:})))
+
 proc createHeaders(headers: RawHeaders): string =
   result = ""
   if headers != nil:
@@ -112,7 +115,7 @@ proc statusContent(request: Request, status: HttpCode, content: string,
   try:
     send(request, status, headers, content)
     when not defined(release):
-      logging.debug("  $1 $2" % [$status, $headers])
+      logging.debug("  $1 $2" % [$status, toStr(headers)])
   except:
     logging.error("Could not send response: $1" % osErrorMsg(osLastError()))
 
@@ -305,6 +308,9 @@ proc handleFileRequest(
 
     # Http200 means that the data was sent so there is nothing else to do.
     if status == Http200:
+      result[0] = TCActionRaw
+      when not defined(release):
+        logging.debug("  -> $1" % path)
       return
 
   return (TCActionSend, status, none[seq[(string, string)]](), "", true)
@@ -348,7 +354,8 @@ proc handleRequestSlow(
       respData.headers
     )
   else:
-    logging.debug("  $1" % [$respData.action])
+    when not defined(release):
+      logging.debug("  $1" % [$respData.action])
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
