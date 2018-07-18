@@ -140,7 +140,8 @@ get "/":
   setCookie("test", @"value", daysForward(5))
 ```
 
-They can then be accessed from the ``request.cookies`` PStringTable.
+They can then be accessed using the ``request.cookies`` procedure which returns
+a ``Table[string, string]``.
 
 ## Request object
 

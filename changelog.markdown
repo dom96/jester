@@ -1,5 +1,20 @@
 # Jester changelog
 
+## 0.4.0 - 18/07/2018
+
+This is a major new release focusing on optimizations. In one specific benchmark
+involving pipelined HTTP requests, the speed up was 650% in comparison to
+Jester v0.3.0. For another benchmark using the `wrk` tool, with no pipelining,
+the speed up was 178%.
+
+A list of changes follows:
+
+- **Breaking change:** The response headers are now stored in a more efficient
+  data structure called ``RawHeaders``. This new data structure is also stored
+  in an ``Option`` type, this makes some responses significantly more efficient.
+- ``sendFile`` has been implemented, so it's now possible to easily respond
+  to a request with a file.
+
 ## 0.3.0 - 06/07/2018
 
 This is a major new release containing many changes and improvements.
