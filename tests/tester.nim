@@ -196,5 +196,10 @@ when isMainModule:
   try:
     allTest(useStdLib=false) # Test HttpBeast.
     allTest(useStdLib=true)  # Test asynchttpserver.
+
+    # Verify that Nim in Action Tweeter still compiles.
+    test "Nim in Action - Tweeter":
+      let path = "tests/nim-in-action-code/Chapter7/Tweeter/src/tweeter.nim"
+      check execCmd("nim c --path:. " & path) == QuitSuccess
   finally:
     doAssert execCmd("kill -15 " & $serverProcess.processID()) == QuitSuccess
