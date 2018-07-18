@@ -114,6 +114,10 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/sendFile")
     check (waitFor resp.body) == "Hello World!"
 
+  test "can access query":
+    let resp = waitFor client.get(address & "/foo/query?q=test")
+    check (waitFor resp.body) == """{"q": "test"}"""
+
   suite "static":
     test "index.html":
       let resp = waitFor client.get(address & "/foo/root")

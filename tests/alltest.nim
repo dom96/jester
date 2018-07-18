@@ -198,3 +198,6 @@ routes:
 
   get "/sendFile":
     sendFile(getCurrentDir() / "tests/public/root/test_file.txt")
+
+  get "/query":
+    resp $request.params
