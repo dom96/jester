@@ -48,7 +48,7 @@ proc path*(req: Request): string =
     let p = req.req.path.get("")
     let queryStart = p.find('?')
     if unlikely(queryStart != -1):
-      return p[0 .. queryStart]
+      return p[0 .. queryStart-1]
     else:
       return p
   else:
