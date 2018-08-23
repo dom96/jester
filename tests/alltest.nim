@@ -127,7 +127,7 @@ routes:
     resp Http404, "Template not working"
 
   get "/nil":
-    resp nil.string
+    resp ""
 
   get "/MyCustomError":
     raise newException(MyCustomError, "testing")

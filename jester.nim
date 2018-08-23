@@ -79,12 +79,11 @@ proc toStr(headers: Option[RawHeaders]): string =
 
 proc createHeaders(headers: RawHeaders): string =
   result = ""
-  if headers != nil:
-    for header in headers:
-      let (key, value) = header
-      result.add(key & ": " & value & "\c\L")
+  for header in headers:
+    let (key, value) = header
+    result.add(key & ": " & value & "\c\L")
 
-    result = result[0 .. ^3] # Strip trailing \c\L
+  result = result[0 .. ^3] # Strip trailing \c\L
 
 proc createResponse(status: HttpCode, headers: RawHeaders): string =
   return "HTTP/1.1 " & $status & "\c\L" & createHeaders(headers) & "\c\L\c\L"
@@ -222,7 +221,7 @@ proc defaultErrorFilter(error: RouteError): ResponseData =
     let e = error.exc
     let traceback = getStackTrace(e)
     var errorMsg = e.msg
-    if errorMsg.isNil: errorMsg = "(nil)"
+    if errorMsg.len == 0: errorMsg = "(nil)"
 
     let error = traceback & errorMsg
     logging.error(error)
