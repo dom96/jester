@@ -201,3 +201,6 @@ routes:
 
   get "/query":
     resp $request.params
+
+  get "/issue157":
+    resp(Http200, [("Content-Type","text/css")] , "foo")

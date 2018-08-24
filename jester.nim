@@ -488,14 +488,6 @@ proc serve*(
       asyncCheck serveFut
     runForever()
 
-template resp*(code: HttpCode,
-               headers: openarray[tuple[key, value: string]],
-               content: string): typed =
-  ## Sets ``(code, headers, content)`` as the response.
-  bind TCActionSend, newHttpHeaders
-  result = (TCActionSend, code, headers.newHttpHeaders.some(), content, true)
-  break route
-
 template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
   bind isNone
   if isNone(headers):
@@ -512,6 +504,17 @@ template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
 
       # Add key if it doesn't exist.
       headers = some(h & @({key: value}))
+
+template resp*(code: HttpCode,
+               headers: openarray[tuple[key, value: string]],
+               content: string): typed =
+  ## Sets ``(code, headers, content)`` as the response.
+  bind TCActionSend
+  result = (TCActionSend, code, none[RawHeaders](), content, true)
+  for header in headers:
+    setHeader(result[2], header[0], header[1])
+  break route
+
 
 template resp*(content: string, contentType = "text/html;charset=utf-8"): typed =
   ## Sets ``content`` as the response; ``Http200`` as the status code

@@ -118,6 +118,11 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/query?q=test")
     check (waitFor resp.body) == """{"q": "test"}"""
 
+  test "issue 157":
+    let resp = waitFor client.get(address & "/foo/issue157")
+    let headers = resp.headers
+    check headers["Content-Type"] == "text/css"
+
   suite "static":
     test "index.html":
       let resp = waitFor client.get(address & "/foo/root")
