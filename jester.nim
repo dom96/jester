@@ -461,8 +461,12 @@ proc serve*(
       ]
     )
   else:
-    logging.info("Jester is making jokes at http://0.0.0.0:$1$2" %
-                 [$self.settings.port, self.settings.appName])
+    when defined(windows):
+      logging.info("Jester is making jokes at http://127.0.0.1:$1$2 (all interfaces)" %
+                   [$self.settings.port, self.settings.appName])
+    else:
+      logging.info("Jester is making jokes at http://0.0.0.0:$1$2" %
+                   [$self.settings.port, self.settings.appName])
 
   var jes = self
   when useHttpBeast:
