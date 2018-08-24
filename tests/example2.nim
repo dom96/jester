@@ -1,7 +1,6 @@
 import jester, asyncdispatch, asyncnet
 
 proc match(request: Request): Future[ResponseData] {.async.} =
-  result.headers = newHttpHeaders()
   block route:
     case request.pathInfo
     of "/":
@@ -9,5 +8,5 @@ proc match(request: Request): Future[ResponseData] {.async.} =
     else:
       resp Http404, "Not found!"
 
-jester.serve(match)
-runForever()
+var server = initJester(match)
+server.serve()
