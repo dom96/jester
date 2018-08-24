@@ -1,5 +1,10 @@
 # Jester changelog
 
+## 0.4.1 - 24/08/2018
+
+This is a minor release containing a number of bug fixes. The main purpose of
+this release is compatibility with the recent Nim seq/string changes.
+
 ## 0.4.0 - 18/07/2018
 
 This is a major new release focusing on optimizations. In one specific benchmark
