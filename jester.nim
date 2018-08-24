@@ -79,7 +79,7 @@ proc toStr(headers: Option[RawHeaders]): string =
 
 proc createHeaders(headers: RawHeaders): string =
   result = ""
-  if headers != nil:
+  if headers.len > 0:
     for header in headers:
       let (key, value) = header
       result.add(key & ": " & value & "\c\L")
@@ -222,7 +222,7 @@ proc defaultErrorFilter(error: RouteError): ResponseData =
     let e = error.exc
     let traceback = getStackTrace(e)
     var errorMsg = e.msg
-    if errorMsg.isNil: errorMsg = "(nil)"
+    if errorMsg.len == 0: errorMsg = "(empty)"
 
     let error = traceback & errorMsg
     logging.error(error)
