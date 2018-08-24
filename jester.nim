@@ -1299,7 +1299,7 @@ proc routesEx(name: string, body: NimNode): NimNode =
     for branch in exceptionBranches:
       stmts.add(newIfStmt(branch))
     errorHandlerProc[6][0][1][^1][1][1][0] = stmts
-  if httpCodeBranches.len > 1:
+  if httpCodeBranches.len != 0:
     var stmts = newStmtList()
     for branch in httpCodeBranches:
       stmts.add(newIfStmt(branch))

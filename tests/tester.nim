@@ -192,10 +192,32 @@ proc allTest(useStdLib: bool) =
       let resp = waitFor client.get(address & "/foo/after/added")
       check (waitFor resp.body) == "Hello! Added by after!"
 
+proc issue150(useStdLib: bool) =
+  waitFor startServer("issue150.nim", useStdLib)
+  var client = newAsyncHttpClient(maxRedirects = 0)
+
+  suite "issue150 useStdLib=" & $useStdLib:
+    test "can get root":
+      # If this fails then `issue150` is likely not running.
+      let resp = waitFor client.get(address)
+      check resp.code == Http200
+
+    test "can use custom 404 handler":
+      let resp = waitFor client.get(address & "/nonexistent")
+      check resp.code == Http404
+      check (waitFor resp.body) == "Looks you took a wrong turn somewhere."
+
+    test "can use custom error handler":
+      let resp = waitFor client.get(address & "/raise")
+      check resp.code == Http500
+      check (waitFor resp.body).startsWith("Something bad happened")
+
 when isMainModule:
   try:
     allTest(useStdLib=false) # Test HttpBeast.
     allTest(useStdLib=true)  # Test asynchttpserver.
+    issue150(useStdLib=false)
+    issue150(useStdLib=true)
 
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":
