@@ -88,7 +88,7 @@ Jester supports conditions, however they are limited to a simple ``cond`` templa
 ```nim
 routes:
   get "/@name":
-    cond @"name" != "daniel"
+    cond @"name" == "daniel"
     # ``cond`` will pass execution to the next matching route if @"name" is not
     # "daniel".
     resp "Correct, my name is daniel."
