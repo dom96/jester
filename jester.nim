@@ -473,7 +473,9 @@ proc serve*(
     run(
       proc (req: httpbeast.Request): Future[void] =
         result = handleRequest(jes, req),
-      httpbeast.initSettings(self.settings.port, self.settings.bindAddr)
+      httpbeast.initSettings(self.settings.port,
+                            self.settings.reusePort,
+                            self.settings.bindAddr)
     )
   else:
     self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort)
