@@ -374,6 +374,9 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
           respData.content,
           respData.headers
         )
+        let future = newFuture[void]()
+        complete(future)
+        return future
       else:
         return handleRequestSlow(jes, req, respData, false)
     else:
