@@ -177,6 +177,27 @@ Request* = ref object
 
 ## Examples
 
+### Custom router
+
+A custom router allows running your own initialization code and pass dynamic settings to Jester before starting the async loop.
+
+```nim
+import asyncdispatch, jester, os, strutils
+
+router myrouter:
+  get "/":
+    resp "It's alive!"
+
+proc main() =
+  let port = paramStr(1).parseInt().Port
+  let settings = newSettings(port=port)
+  var jester = initJester(myrouter, settings=settings)
+  jester.serve()
+
+when isMainModule:
+  main()
+```
+
 ### Github service hooks
 
 The code for this is pretty similar to the code for Sinatra given here: http://help.github.com/post-receive-hooks/
@@ -189,3 +210,4 @@ routes:
     var push = parseJson(@"payload")
     resp "I got some JSON: " & $push
 ```
+
