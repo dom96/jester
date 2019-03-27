@@ -475,7 +475,8 @@ proc serve*(
   when useHttpBeast:
     run(
       proc (req: httpbeast.Request): Future[void] =
-        result = handleRequest(jes, req),
+         {.gcsafe.}:
+          result = handleRequest(jes, req),
       httpbeast.initSettings(self.settings.port, self.settings.bindAddr)
     )
   else:
