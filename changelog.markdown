@@ -51,7 +51,7 @@ routes:
 ```
 
 The `api` routes are all prefixed with `/api`, for example
-https://localhost:5000/api/names.
+http://localhost:5000/api/names.
 
 ### Error handlers
 
@@ -94,7 +94,7 @@ or earlier.
 
 This vulnerability makes it possible for an attacker to access files outside
 your designated `static` directory. This can be done by requesting URLs such as
-https://localhost:5000/../webapp.nim. An attacker could potentially access
+http://localhost:5000/../webapp.nim. An attacker could potentially access
 anything on your filesystem using this method, as long as the running application
 had the necessary permissions to read the file.
 
