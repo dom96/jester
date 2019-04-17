@@ -1,5 +1,9 @@
 # Jester changelog
 
+## 0.4.2 - 17/04/2019
+
+Fix 0-day vulnerability https://github.com/dom96/jester/issues/196
+
 ## 0.4.1 - 24/08/2018
 
 This is a minor release containing a number of bug fixes. The main purpose of
