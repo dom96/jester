@@ -286,6 +286,20 @@ proc dispatch(
       if data.matched:
         return data
 
+proc isRelativeTo(path: string, dir: string): bool =
+  let path = normalizedPath(path)
+  let dir = normalizedPath(dir)
+  if path.startsWith dir:
+    if path.len == dir.len:
+      return true
+    if dir.endsWith(DirSep) or (path[dir.len] == DirSep):
+      # makes sure these hold:
+      # doAssert isRelativeTo("/foo", "/")
+      # doAssert isRelativeTo("/foo/bar", "/foo")
+      # doAssert not isRelativeTo("/foo2", "/foo")
+      return true
+  return false
+
 proc handleFileRequest(
   jes: Jester, req: Request
 ): Future[ResponseData] {.async.} =
@@ -297,7 +311,7 @@ proc handleFileRequest(
 
   # Verify that this isn't outside our static` dir.
   var status = Http400
-  if path.splitFile.dir.startsWith(jes.settings.staticDir):
+  if path.isRelativeTo(jes.settings.staticDir):
     if existsDir(path):
       status = await sendStaticIfExists(
         req,
@@ -1359,3 +1373,14 @@ macro settings*(body: untyped): typed =
   for asgn in body.children:
     expectKind(asgn, nnkAsgn)
     result.add newAssignment(newDotExpr(settingsIdent, asgn[0]), asgn[1])
+
+when isMainModule:
+  doAssert "/".isRelativeTo "/"
+  doAssert "/foo".isRelativeTo "/"
+  doAssert "/foo".isRelativeTo "/foo"
+  doAssert "/foo".isRelativeTo "/foo/"
+  doAssert not "/foo2".isRelativeTo "/foo"
+  doAssert not "/foo/bar2".isRelativeTo "/foo/bar"
+  doAssert "/foo/bar".isRelativeTo "/foo/bar"
+  doAssert "/foo/bar/baz".isRelativeTo "/foo/bar"
+  doAssert "/foo/bar/baz".isRelativeTo "/foo/bar/"
