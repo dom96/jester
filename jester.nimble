@@ -16,7 +16,7 @@ when not defined(windows):
   requires "httpbeast >= 0.2.0"
 
 # For tests
-requires "asynctools"
+requires "https://github.com/timotheecour/asynctools#pr_fix_compilation"
 
 task test, "Runs the test suite.":
   exec "nimble c -y -r tests/tester"

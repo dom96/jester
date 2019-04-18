@@ -174,7 +174,11 @@ proc sendStaticIfExists(
         return Http403
 
       let fileSize = getFileSize(p)
-      let mimetype = req.settings.mimes.getMimetype(p.splitFile.ext[1 .. ^1])
+      let ext = p.splitFile.ext
+      let mimetype = req.settings.mimes.getMimetype(
+        if ext.len > 0: ext[1 .. ^1]
+        else: ""
+      )
       if fileSize < 10_000_000: # 10 mb
         var file = readFile(p)
 
@@ -295,9 +299,11 @@ proc handleFileRequest(
     jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
   )
 
-  # Verify that this isn't outside our static` dir.
+  # Verify that this isn't outside our static dir.
   var status = Http400
-  if path.splitFile.dir.startsWith(jes.settings.staticDir):
+  let pathDir = path.splitFile.dir / ""
+  let staticDir = jes.settings.staticDir / ""
+  if pathDir.startsWith(staticDir):
     if existsDir(path):
       status = await sendStaticIfExists(
         req,

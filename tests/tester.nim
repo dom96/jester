@@ -137,6 +137,8 @@ proc allTest(useStdLib: bool) =
       check resp.code == Http400
       let resp2 = waitFor client.get(address & "/foo/root/..%2f../tester.nim")
       check resp2.code == Http400
+      let resp3 = waitFor client.get(address & "/foo/../public2/should_be_inaccessible")
+      check resp3.code == Http400
 
   suite "extends":
     test "simple":
