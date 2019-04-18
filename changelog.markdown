@@ -1,5 +1,16 @@
 # Jester changelog
 
+## 0.4.2 - 18/04/2019
+
+This is a minor release containing a number of bug fixes.
+**In particular it fixes a 0-day vulnerability**, which allows an attacker to
+request static files from outside the static directory in certain circumastances.
+See [this commit](https://github.com/dom96/jester/commit/0bf4e344e3d95934780f2e7a39e7eed692b94f09) for a test which reproduces the bug.
+
+For other changes, see the commits since the last version:
+
+https://github.com/dom96/jester/compare/v0.4.1...v0.4.2
+
 ## 0.4.1 - 24/08/2018
 
 This is a minor release containing a number of bug fixes. The main purpose of
