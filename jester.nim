@@ -704,7 +704,8 @@ proc daysForward*(days: int): DateTime =
   return getTime().utc + initInterval(days = days)
 
 template setCookie*(name, value: string, expires="",
-                    sameSite: SameSite=Lax): typed =
+                    sameSite: SameSite=Lax; secure = false;
+                    httpOnly = false): typed =
   ## Creates a cookie which stores ``value`` under ``name``.
   ##
   ## The SameSite argument determines the level of CSRF protection that
@@ -712,7 +713,7 @@ template setCookie*(name, value: string, expires="",
   ## should protect you from most vulnerabilities. Note that this is only
   ## supported by some browsers:
   ## https://caniuse.com/#feat=same-site-cookie-attribute
-  let newCookie = makeCookie(name, value, expires)
+  let newCookie = makeCookie(name, value, expires, "", "", secure, httpOnly, sameSite)
   if isSome(result[2]) and
      (let headers = result[2].get(); headers.toTable.hasKey("Set-Cookie")):
     result[2] = some(headers & @({"Set-Cookie": newCookie}))
@@ -720,9 +721,11 @@ template setCookie*(name, value: string, expires="",
     setHeader(result[2], "Set-Cookie", newCookie)
 
 template setCookie*(name, value: string, expires: DateTime,
-                    sameSite: SameSite=Lax): typed =
+                    sameSite: SameSite=Lax; secure = false;
+                    httpOnly = false): typed =
   ## Creates a cookie which stores ``value`` under ``name``.
-  setCookie(name, value, format(expires, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'"))
+  setCookie(name, value, format(expires, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'"),
+            sameSite, secure, httpOnly)
 
 proc normalizeUri*(uri: string): string =
   ## Remove any trailing ``/``.
