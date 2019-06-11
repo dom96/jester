@@ -726,7 +726,7 @@ template setCookie*(name, value: string, expires: DateTime,
   ## Creates a cookie which stores ``value`` under ``name``.
   setCookie(name, value,
             format(expires.utc, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'"),
-            sameSite, secure, httpOnly)
+            sameSite, secure, httpOnly, domain, path)
 
 proc normalizeUri*(uri: string): string =
   ## Remove any trailing ``/``.
