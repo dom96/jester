@@ -23,6 +23,7 @@ export SameSite
 when useHttpBeast:
   import httpbeast except Settings, Request
   import options
+  from nativesockets import close
 else:
   import asynchttpserver except Request
 
@@ -219,6 +220,15 @@ proc sendStaticIfExists(
 
   # If we get to here then no match could be found.
   return Http404
+
+proc close*(request: Request) =
+  ## Closes client socket connection.
+  ##
+  ## Routes using this procedure must enable raw mode.
+  let nativeReq = request.getNativeReq()
+  when useHttpBeast:
+    nativeReq.forget()  
+  nativeReq.client.close()
 
 proc defaultErrorFilter(error: RouteError): ResponseData =
   case error.kind
