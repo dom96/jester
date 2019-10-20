@@ -752,7 +752,10 @@ proc checkAction*(respData: var ResponseData): bool =
   of TCActionPass:
     result = false
   of TCActionNothing:
-    assert(false)
+    raise newException(
+      ValueError,
+      "Missing route action, did you forget to use `resp` in your route?"
+    )
 
 proc skipDo(node: NimNode): NimNode {.compiletime.} =
   if node.kind == nnkDo:
