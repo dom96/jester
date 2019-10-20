@@ -21,7 +21,7 @@ type
   JesterError* = object of Exception
 
 proc parseUrlQuery*(query: string, result: var Table[string, string])
-    {.deprecated: "use stdlib".} =
+    {.deprecated: "use stdlib cgi/decodeData".} =
   var i = 0
   i = query.skip("?")
   while i < query.len()-1:
