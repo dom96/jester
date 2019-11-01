@@ -3,8 +3,6 @@
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly
 creating web applications in Nim.
 
-**Note:** Starting with Jester 0.3.0, a devel version of Nim is required.
-
 ```nim
 # example.nim
 import htmlgen
