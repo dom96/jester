@@ -1033,26 +1033,35 @@ proc processRoutesBody(
   beforeStmts,
   afterStmts: var NimNode,
   # For other statements.
-  outsideStmts: var NimNode,
+  outsideStmts,
+  pluginBeforeStmts,
+  pluginAfterStmts: var NimNode,
   pathPrefix: string
 ) =
   for i in 0..<body.len:
     case body[i].kind
     of nnkCall:
       let cmdName = body[i][0].`$`.normalize
+      echo "nnkCall NAME: " & cmdName
       case cmdName
       of "before":
         createGlobalMetaRoute(body[i], beforeStmts)
       of "after":
         createGlobalMetaRoute(body[i], afterStmts)
+      # of "plugin":
+      #   echo "GOT IT"
+      #   # pluginBaseBeforeStmts.add(body[i])
+      #   echo toStrLit(body[i])
       else:
         outsideStmts.add(body[i])
     of nnkCommand:
       let cmdName = body[i][0].`$`.normalize
+      echo "nnkCommand NAME: " & cmdName
       case cmdName
       # HTTP Methods
       of "get":
         createRoute(body[i], caseStmtGetBody, pathPrefix)
+        # caseStmtGetBody.add()
       of "post":
         createRoute(body[i], caseStmtPostBody, pathPrefix)
       of "put":
@@ -1076,6 +1085,33 @@ proc processRoutesBody(
         createRoute(body[i], beforeStmts, pathPrefix, isMetaRoute=true)
       of "after":
         createRoute(body[i], afterStmts, pathPrefix, isMetaRoute=true)
+      of "plugin":
+        echo "GOT IT"
+        # pluginBaseBeforeStmts.add(body[i])
+        echo "SRC: " & treeRepr(body[i])
+        # let plugin_name = $(body[i][1])
+        # echo "PLUGIN NAME: " & plugin_name
+        # let plugin_before_name = plugin_name & "_before"
+        # echo "PLUGIN_BEFORE: " & plugin_before_name
+        # let newS = newCall(plugin_before_name)
+        #
+        let varName = $body[i][1][1]
+        let procNode = body[i][1][2]
+        let baseName = $procNode[0]
+        #
+        procNode[0] = ident(baseName & "_before")
+        procNode.insert(1, ident("request"))
+        var procLit = toStrLit(procNode)
+        let newBefore = parseExpr("var $1 = $2".format(varName, procLit))
+        echo "BEFORE: " & treeRepr(newBefore)
+        pluginBeforeStmts.add(newBefore)
+        #
+        procNode[0] = ident(baseName & "_after")
+        procNode.insert(1, ident(varName))
+        procLit = toStrLit(procNode)
+        let newAfter = parseExpr($procLit)
+        echo "AFTER: " & treeRepr(newAfter)
+        pluginAfterStmts.insert(0, newAfter)
       of "extend":
         # Extend another router.
         let extend = body[i]
@@ -1106,6 +1142,8 @@ proc processRoutesBody(
           beforeStmts,
           afterStmts,
           outsideStmts,
+          pluginBeforeStmts,
+          pluginAfterStmts,
           pathPrefix & prefix
         )
       else:
@@ -1195,6 +1233,10 @@ proc routesEx(name: string, body: NimNode): NimNode =
   var beforeRoutes = newStmtList()
   var afterRoutes = newStmtList()
 
+  # Plugin nodes:
+  var pluginBeforeStmts = newStmtList()
+  var pluginAfterStmts = newStmtList()
+
   processRoutesBody(
     body,
     caseStmtGetBody,
@@ -1211,8 +1253,12 @@ proc routesEx(name: string, body: NimNode): NimNode =
     beforeRoutes,
     afterRoutes,
     outsideStmts,
+    pluginBeforeStmts,
+    pluginAfterStmts,
     ""
   )
+
+  matchBody.add pluginBeforeStmts
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
@@ -1302,6 +1348,8 @@ proc routesEx(name: string, body: NimNode): NimNode =
         ): ResponseData {.gcsafe.} =
           discard
 
+  matchBody.add pluginAfterStmts
+
   # The following `block` is for `halt`. (`return` didn't work :/)
   let allRoutesBlock = newTree(
     nnkBlockStmt,
@@ -1362,6 +1410,7 @@ macro routes*(body: untyped): typed =
     quote do:
       serve(`jesIdent`)
   )
+  echo toStrLit(result)  # TODO
 
 macro router*(name: untyped, body: untyped): typed =
   if name.kind != nnkIdent:
