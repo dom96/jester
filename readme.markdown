@@ -1,4 +1,4 @@
-# Jester
+# 🃏 Jester 🃏
 
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly
 creating web applications in Nim.
