@@ -508,7 +508,7 @@ proc serve*(
       asyncCheck serveFut
     runForever()
 
-template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
+template setHeader*(headers: var Option[RawHeaders], key, value: string): typed =
   bind isNone
   if isNone(headers):
     headers = some(@({key: value}))
@@ -1036,6 +1036,7 @@ proc processRoutesBody(
   outsideStmts,
   pluginBeforeStmts,
   pluginAfterStmts: var NimNode,
+  specificStmts: var Table[string, NimNode],
   pathPrefix: string
 ) =
   for i in 0..<body.len:
@@ -1048,10 +1049,8 @@ proc processRoutesBody(
         createGlobalMetaRoute(body[i], beforeStmts)
       of "after":
         createGlobalMetaRoute(body[i], afterStmts)
-      # of "plugin":
-      #   echo "GOT IT"
-      #   # pluginBaseBeforeStmts.add(body[i])
-      #   echo toStrLit(body[i])
+      of "specific":
+        specificStmts[pathPrefix] = body[i][1]
       else:
         outsideStmts.add(body[i])
     of nnkCommand:
@@ -1086,37 +1085,34 @@ proc processRoutesBody(
       of "after":
         createRoute(body[i], afterStmts, pathPrefix, isMetaRoute=true)
       of "plugin":
-        echo "GOT IT"
-        # pluginBaseBeforeStmts.add(body[i])
-        echo "SRC: " & treeRepr(body[i])
-        # let plugin_name = $(body[i][1])
-        # echo "PLUGIN NAME: " & plugin_name
-        # let plugin_before_name = plugin_name & "_before"
-        # echo "PLUGIN_BEFORE: " & plugin_before_name
-        # let newS = newCall(plugin_before_name)
-        #
         let varName = $body[i][1][1]
-        let procNode = body[i][1][2]
+        var procNode = body[i][1][2]
         let baseName = $procNode[0]
         #
         procNode[0] = ident(baseName & "_before")
+        procNode.insert(1, ident("result"))
         procNode.insert(1, ident("request"))
         var procLit = toStrLit(procNode)
         let newBefore = parseExpr("var $1 = $2".format(varName, procLit))
         echo "BEFORE: " & treeRepr(newBefore)
         pluginBeforeStmts.add(newBefore)
         #
-        procNode[0] = ident(baseName & "_after")
-        procNode.insert(1, ident(varName))
+        procNode = newCall(baseName & "_after", ident("request"), ident("result"))
+        procNode.add ident(varName)
         procLit = toStrLit(procNode)
         let newAfter = parseExpr($procLit)
         echo "AFTER: " & treeRepr(newAfter)
         pluginAfterStmts.insert(0, newAfter)
+      of "specific":
+        discard
+        # specificStmts[pathPrefix] = body[i][1]
       of "extend":
         # Extend another router.
         let extend = body[i]
+
         if extend[1].kind != nnkIdent:
           error("Expected identifier.", extend[1])
+        let rtrName = extend[1].strVal
 
         let prefix =
           if extend.len > 1:
@@ -1127,7 +1123,7 @@ proc processRoutesBody(
           error("Path prefix for extended route must start with '/'", extend[2])
 
         processRoutesBody(
-          definedRoutes[extend[1].strVal],
+          definedRoutes[rtrName],
           caseStmtGetBody,
           caseStmtPostBody,
           caseStmtPutBody,
@@ -1144,6 +1140,7 @@ proc processRoutesBody(
           outsideStmts,
           pluginBeforeStmts,
           pluginAfterStmts,
+          specificStmts,
           pathPrefix & prefix
         )
       else:
@@ -1190,11 +1187,13 @@ proc needsAsync(node: NimNode): NeedsAsync =
     let r = needsAsync(c)
     if r in {ImplicitTrue, ExplicitTrue, ExplicitFalse}: return r
 
-proc routesEx(name: string, body: NimNode): NimNode =
+proc routesEx(name: string, prime=true, body: NimNode): NimNode =
   # echo(treeRepr(body))
   # echo(treeRepr(name))
 
   # Save this route's body so that it can be incorporated into another route.
+  let reqIdent = newIdentNode("request")
+
   definedRoutes[name] = body.copyNimTree
 
   result = newStmtList()
@@ -1237,6 +1236,9 @@ proc routesEx(name: string, body: NimNode): NimNode =
   var pluginBeforeStmts = newStmtList()
   var pluginAfterStmts = newStmtList()
 
+  # Router-specific 'before' stmts
+  var specificStmts = initTable[string, NimNode]()
+
   processRoutesBody(
     body,
     caseStmtGetBody,
@@ -1255,10 +1257,12 @@ proc routesEx(name: string, body: NimNode): NimNode =
     outsideStmts,
     pluginBeforeStmts,
     pluginAfterStmts,
+    specificStmts,
     ""
   )
 
-  matchBody.add pluginBeforeStmts
+  if prime:
+    matchBody.add pluginBeforeStmts  
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
@@ -1314,9 +1318,17 @@ proc routesEx(name: string, body: NimNode): NimNode =
         `beforeRoutes`
   )
 
+  var specificBody = newStmtList()
+  if prime:
+    for prefix, nd in specificStmts.pairs():
+      specificBody.add quote do:
+        if `reqIdent`.pathInfo.startsWith(`prefix`):
+          `nd`
+
   matchBody.add(
     quote do:
       block `routesListIdent`:
+        `specificBody`
         `caseStmt`
   )
 
@@ -1327,7 +1339,6 @@ proc routesEx(name: string, body: NimNode): NimNode =
   )
 
   let matchIdent = newIdentNode(name)
-  let reqIdent = newIdentNode("request")
   let needsAsync = needsAsync(body)
   case needsAsync
   of ImplicitFalse, ExplicitFalse:
@@ -1396,7 +1407,9 @@ proc routesEx(name: string, body: NimNode): NimNode =
   # echo treeRepr(result)
 
 macro routes*(body: untyped): typed =
-  result = routesEx("match", body)
+  result = routesEx("match", prime=true, body)
+  echo "start of 'routes'"
+  echo toStrLit(result)
   let jesIdent = genSym(nskVar, "jes")
   let matchIdent = newIdentNode("match")
   let errorHandlerIdent = newIdentNode("matchErrorHandler")
@@ -1410,13 +1423,16 @@ macro routes*(body: untyped): typed =
     quote do:
       serve(`jesIdent`)
   )
+  echo "after 'routes'"
   echo toStrLit(result)  # TODO
 
 macro router*(name: untyped, body: untyped): typed =
   if name.kind != nnkIdent:
     error("Need an ident.", name)
 
-  routesEx($name.ident, body)
+  result = routesEx($name.ident, prime=false, body)
+  echo "after router"
+  echo toStrLit(result)
 
 macro settings*(body: untyped): typed =
   #echo(treeRepr(body))
