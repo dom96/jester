@@ -738,6 +738,25 @@ template setCookie*(name, value: string, expires: DateTime,
             format(expires.utc, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'"),
             sameSite, secure, httpOnly, domain, path)
 
+template setCookieResponse*(res: var ResponseData, 
+                          name, value: string, expires: DateTime,
+                          sameSite: SameSite=Lax, secure = false,
+                          httpOnly = false, domain = "", path = ""): typed =
+  ## Creates a cookie which stores ``value`` under ``name``.
+  ##
+  ## The SameSite argument determines the level of CSRF protection that
+  ## you wish to adopt for this cookie. It's set to Lax by default which
+  ## should protect you from most vulnerabilities. Note that this is only
+  ## supported by some browsers:
+  ## https://caniuse.com/#feat=same-site-cookie-attribute
+  let expireStr = format(expires.utc, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'")
+  let newCookie = makeCookie(name, value, expireStr, domain, path, secure, httpOnly, sameSite)
+  if isSome(res[2]) and
+     (let headers = res[2].get(); headers.toTable.hasKey("Set-Cookie")):
+    res[2] = some(headers & @({"Set-Cookie": newCookie}))
+  else:
+    setHeader(res[2], "Set-Cookie", newCookie)
+
 proc normalizeUri*(uri: string): string =
   ## Remove any trailing ``/``.
   if uri[uri.len-1] == '/': result = uri[0 .. uri.len-2]
@@ -1433,6 +1452,16 @@ macro router*(name: untyped, body: untyped): typed =
   result = routesEx($name.ident, prime=false, body)
   echo "after router"
   echo toStrLit(result)
+
+macro subrouter*(name: untyped, body: untyped): typed =
+  if name.kind != nnkIdent:
+    error("Need an ident.", name)
+
+  discard routesEx($name.ident, prime=false, body)
+  result = newCommentStmtNode("placeholder for " & $name)
+  echo "after subrouter"
+  echo toStrLit(result)
+
 
 macro settings*(body: untyped): typed =
   #echo(treeRepr(body))
