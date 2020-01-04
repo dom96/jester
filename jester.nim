@@ -1343,6 +1343,9 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
       specificBody.add quote do:
         if `reqIdent`.pathInfo.startsWith(`prefix`):
           `nd`
+    specificBody.add quote do:
+      if result.matched == true:
+        break `routesListIdent`
 
   matchBody.add(
     quote do:
