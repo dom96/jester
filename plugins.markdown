@@ -1,0 +1,181 @@
+# Plugins
+
+A plugin is a macro method of inserting code that runs before and after each
+page's route code.
+
+It is intended to simplify extending Jester in unique ways by simply adding
+plugin libraries that perform extra functions.
+
+## Usage
+
+While each plugin library's documentation should have details on how to best use
+the plugin, the general pattern is to either:
+
+### Add it to ``routes``
+
+```nim
+import htmlgen
+import jester
+
+routes:
+  plugin x <- somePlugin()
+  get "/":
+    resp h1("Hello world")  # this is the route code for "/"
+```
+
+or,
+
+### Add it to the main custom router
+
+```nim
+import asyncdispatch, jester, os, strutils
+
+router myrouter:
+  plugin x <- somePlugin()
+  get "/":
+    resp h1("Hello world")  # this is the route code for "/"
+
+proc main() =
+  let port = paramStr(1).parseInt().Port
+  let settings = newSettings(port=port)
+  var jester = initJester(myrouter, settings=settings)
+  jester.serve()
+
+when isMainModule:
+  main()
+```
+
+In the above examples, the `x` variable is created before any page code is run by
+the ``somePlugin()``'s "before" code. It also runs it's "after" code after any
+route code.
+
+This lets the plugin do many things, including:
+
+* modify the information about the incoming page request
+* redirect traffic (bypassing the route code)
+* set new defaults for headers, content, etc.
+* manipulate cookies
+* call external libraries or services such as databases
+
+## Using Multiple Plugins
+
+Using multiple plugins is fully supported. In fact, parameters for the plugins
+can accept the new variable created by a previous plugin. For this reason (and
+others), the order of the plugin declaration matters.
+
+An annotated example:
+
+```nim
+import htmlgen
+import jester
+
+routes:
+  plugin a <- pluginA()
+  plugin b <- pluginB(a)
+  plugin c <- pluginC(a, b)
+  get "/":
+    # "before" code for pluginA() runs first and creates "a"
+    # "before" code for pluginB(a) runs next and creates "b"
+    # "before" code for pluginC(a, b) runs last (and creates "c")
+    # if none of the plugins have forbade it, your route code now runs:
+    resp h1("Hello world")  # this is the route code for "/"; your code can see a, b, and c
+    # "after" code for PluginC runs
+    # "after" code for PluginB runs next
+    # "after" code for PluginA runs last
+```
+
+## Route Prefixing with ``subrouter`` and ``specific``
+
+Jester allows you to create ``subrouter`` routes that are referenced
+from the main router. For example:
+
+
+```nim
+import htmlgen
+import jester
+
+subrouter jerryRouter:
+  get "/":                  # this becomes /jerry
+    resp h1("jerry root")
+  get "xyz":                # this becomes /jerry/xyz
+    resp h1("jerry xyz")
+
+subrouter bobRouter:
+  get "abc":                # this becomes /bob/abc AND /larry/abc
+    resp h1("bob abc")
+
+routes:
+  plugin x <- somePlugin()
+  extend jerryRouter, "/jerry"
+  extend bobRouter, "/bob"
+  extend bobRouter, "/larry"
+  get "/":
+    resp h1("Hello world")  # this is the route code for "/"
+```
+
+All of the subrouters will gain the plugin(s) automatically.
+
+You can also change the behavior of the plugins on a per-subrouter basis
+using the ``specific`` command. The ``specific`` command allows you to run
+code before any routes but ONLY in the context of the routers route prefix.
+
+(The ``specific`` command also runs in the context of the current thread, which
+is important if you are running Jester with threading enabled.)
+
+So, for example, if you had a plugin that handled user management (login/logout etc.),
+such a plugin could be used like this:
+
+```nim
+import htmlgen
+import jester
+
+import myloginmanager
+
+subrouter adminRouter:
+  specific:
+    userManager.requireLogin()
+  get "/profile":                 # /admin/profile
+    resp profileHTMLProc()
+  post "/profile":                # /admin/profile
+    profileEditProc(userManager)
+    redirect "/admin/profile"
+  get "/logoff":                  # /admin/logoff
+    userManager.logoff()
+    redirect "/"
+
+routes:
+  plugin userManager <- myLoginManager()
+  extend adminRouter, "/admin"
+  get "/":
+    resp h1("Hello world")
+  get "/login":
+    resp loginHTMLProc()
+  get "/error":
+    resp h1("Login required.")
+```
+
+In this example, anything with prefix "/admin" will run the template `userManager.requireLogin()` 
+because it is in the `specific` code for that router prefix. Presumably, this would
+redirect the user to the "/error" page which does not have that `specific` code.
+
+### NOTE about multple ``router``
+
+It is possible to use multiple full routers (using the `router` macro) in a prefixed
+manner. However, any full routers other than the main one will be "missing" context used
+by the plugins. In general, you should avoid mutiple calls to the ``router``
+macro if they will rely on plugins.
+
+## Finding Plugins
+
+Since a plugin is a nim library with a dependency on Jester, the best and most
+organized way to find a plugin is using Nim's [nimble.directory](https://nimble.directory/)
+web site.
+
+Simply search for "jester plugin" at that site.
+
+## Developing a Plugin
+
+Developing a plugin is non-trivial and should be done with care so as to not interfere
+with other plugins. It will also require understanding some of the internal
+processing done by Jester. Visit the [Developing a Plugin Doc](plugin-develop.markup)
+for more details.

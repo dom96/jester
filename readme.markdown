@@ -1,4 +1,4 @@
-# Jester
+# 🃏 Jester 🃏
 
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly
 creating web applications in Nim.
@@ -171,6 +171,29 @@ Request* = ref object
   ip*: string                   ## IP address of the requesting client.
   reqMeth*: TReqMeth            ## Request method, eg. HttpGet, HttpPost
   settings*: PSettings
+```
+
+## Plugins
+
+Jester supports middleware plugins. For more details, visit the [Plugin Docs](plugin.markdown).
+
+A short example using the ``cookieMsgs`` plugin:
+
+```nim
+import htmlgen
+import jester
+import jestercookiemsgs
+
+routes:
+  plugin cm <- cookieMsgs()
+  get "/":
+    cm.say("info", "AAA")
+    redirect "/hello"
+  get "/hello"
+    cm.say("warning", "BBB")
+    resp "hello. msg: " & cm.allMessages[0].c & cm.allMessages[1].c
+    # when from /, will see: "hello. msg: AAABBB"
+    # when direct, will see: "hello. msg: BBB"
 ```
 
 ## Examples
