@@ -100,8 +100,7 @@ proc match(request: Request): Future[ResponseData] {.async, gcsafe.} =
     block routesList:
       if request.pathInfo.startsWith("/hutch"):
         b.notFast()
-      if result.matched ==
-          true:
+      if result[4]:
         break routesList
       case request.reqMethod
       of HttpGet:
