@@ -1208,6 +1208,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
 
   # Save this route's body so that it can be incorporated into another route.
   let reqIdent = newIdentNode("request")
+  let resultIdent = newIdentNode("result")
 
   definedRoutes[name] = body.copyNimTree
 
@@ -1340,7 +1341,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
         if `reqIdent`.pathInfo.startsWith(`prefix`):
           `nd`
     specificBody.add quote do:
-      if result[4]:
+      if `resultIdent`[4]:
         break `routesListIdent`
 
   matchBody.add(
@@ -1393,7 +1394,6 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
   let errorHandlerIdent = newIdentNode(name & "ErrorHandler")
   let errorIdent = newIdentNode("error")
   let exceptionIdent = newIdentNode("exception")
-  let resultIdent = newIdentNode("result")
   var errorHandlerProc = quote do:
     proc `errorHandlerIdent`(
       `reqIdent`: Request, `errorIdent`: RouteError
