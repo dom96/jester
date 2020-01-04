@@ -153,7 +153,7 @@ proc match(request: Request): Future[ResponseData] {.async, gcsafe.} =
 
 A few "rules to live by" when writing a plugin library for the general public to use:
 
-1. Plugins have expectation to have *both* the "before" and "after" code run. Please
+1. Plugins have an expectation that *both* the "before" and "after" code will run. Please
    avoid writing a template or macro that returns from the generated `proc match`
    procedure. If you are wanting to avoid running the route code, such was when
    redirecting, set `results.matched = true` rather than returning.

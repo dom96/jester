@@ -1062,7 +1062,6 @@ proc processRoutesBody(
     case body[i].kind
     of nnkCall:
       let cmdName = body[i][0].`$`.normalize
-      echo "nnkCall NAME: " & cmdName
       case cmdName
       of "before":
         createGlobalMetaRoute(body[i], beforeStmts)
@@ -1074,7 +1073,6 @@ proc processRoutesBody(
         outsideStmts.add(body[i])
     of nnkCommand:
       let cmdName = body[i][0].`$`.normalize
-      echo "nnkCommand NAME: " & cmdName
       case cmdName
       # HTTP Methods
       of "get":
@@ -1113,14 +1111,12 @@ proc processRoutesBody(
         procNode.insert(1, ident("request"))
         var procLit = toStrLit(procNode)
         let newBefore = parseExpr("var $1 = $2".format(varName, procLit))
-        echo "BEFORE: " & treeRepr(newBefore)
         pluginBeforeStmts.add(newBefore)
         #
         procNode = newCall(baseName & "_after", ident("request"), ident("result"))
         procNode.add ident(varName)
         procLit = toStrLit(procNode)
         let newAfter = parseExpr($procLit)
-        echo "AFTER: " & treeRepr(newAfter)
         pluginAfterStmts.insert(0, newAfter)
       of "specific":
         discard
@@ -1344,7 +1340,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
         if `reqIdent`.pathInfo.startsWith(`prefix`):
           `nd`
     specificBody.add quote do:
-      if result.matched == true:
+      if result.matched:
         break `routesListIdent`
 
   matchBody.add(
@@ -1430,8 +1426,6 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
 
 macro routes*(body: untyped): typed =
   result = routesEx("match", prime=true, body)
-  echo "start of 'routes'"
-  echo toStrLit(result)
   let jesIdent = genSym(nskVar, "jes")
   let matchIdent = newIdentNode("match")
   let errorHandlerIdent = newIdentNode("matchErrorHandler")
@@ -1445,25 +1439,26 @@ macro routes*(body: untyped): typed =
     quote do:
       serve(`jesIdent`)
   )
-  echo "after 'routes'"
-  echo toStrLit(result)  # TODO
 
 macro router*(name: untyped, body: untyped): typed =
   if name.kind != nnkIdent:
     error("Need an ident.", name)
 
   result = routesEx($name.ident, prime=false, body)
-  echo "after router"
-  echo toStrLit(result)
 
 macro subrouter*(name: untyped, body: untyped): typed =
+  ## A ``subrouter`` is identical to a router except that it does NOT
+  ## generate a procedure that can be later called. It is strictly for
+  ## registering routes that can latter be added to another router
+  ## via the ``extend`` function.
+  ##
+  ## Any ``specific`` instructions for a subrouter is only invoked
+  ## when the request path is begins with the ``extend``'s prefix.
   if name.kind != nnkIdent:
     error("Need an ident.", name)
 
   discard routesEx($name.ident, prime=false, body)
   result = newCommentStmtNode("placeholder for " & $name)
-  echo "after subrouter"
-  echo toStrLit(result)
 
 
 macro settings*(body: untyped): typed =

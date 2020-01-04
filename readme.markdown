@@ -177,7 +177,7 @@ Request* = ref object
 
 Jester supports middleware plugins. For more details, visit the [Plugin Docs](plugin.markdown).
 
-A short example using the ``cookieMsgs`` plugin:
+A short example using the [``cookieMsgs``](https://nimble.directory/pkg/jestercookiemsgs) plugin:
 
 ```nim
 import htmlgen
