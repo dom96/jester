@@ -1374,8 +1374,9 @@ proc routesEx(name: string, body: NimNode, isClosure = false): NimNode =
   result.add(errorHandlerProc)
 
   # If this is a closure, return the tuple of procs
-  result.add quote do:
-    return (router: `matchIdent`, handler: `errorHandlerIdent`)
+  if isClosure:
+    result.add quote do:
+      return (router: `matchIdent`, handler: `errorHandlerIdent`)
 
   # TODO: Replace `body`, `headers`, `code` in routes with `result[i]` to
   # get these shortcuts back without sacrificing usability.
