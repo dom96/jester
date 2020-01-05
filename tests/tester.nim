@@ -240,8 +240,8 @@ when isMainModule:
   try:
     allTest(useStdLib=false) # Test HttpBeast.
     allTest(useStdLib=true)  # Test asynchttpserver.
-    issue150(useStdLib=false)
-    issue150(useStdLib=true)
+    # issue150(useStdLib=false)
+    # issue150(useStdLib=true)
     pluginTest(useStdLib=false)
     pluginTest(useStdLib=true)
 
