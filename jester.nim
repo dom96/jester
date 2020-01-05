@@ -58,7 +58,9 @@ type
     code: HttpCode,
     headers: Option[RawHeaders],
     content: string,
-    matched: bool
+    matched: bool,
+    completed: bool   # this is a flag used by plugins and `specific` and other user-written router code
+                       # specifically, `resp` and `redirect` and other normal ops should NOT set it.
   ]
 
   CallbackAction* = enum
@@ -329,7 +331,7 @@ proc handleFileRequest(
         logging.debug("  -> $1" % path)
       return
 
-  return (TCActionSend, status, none[seq[(string, string)]](), "", true)
+  return (TCActionSend, status, none[seq[(string, string)]](), "", true, false)
 
 proc handleRequestSlow(
   jes: Jester,
@@ -1277,8 +1279,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
     ""
   )
 
-  if prime:
-    matchBody.add pluginBeforeStmts  
+  matchBody.add pluginBeforeStmts
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
@@ -1341,7 +1342,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
         if `reqIdent`.pathInfo.startsWith(`prefix`):
           `nd`
     specificBody.add quote do:
-      if `resultIdent`[4]:
+      if `resultIdent`.completed:
         break `routesListIdent`
 
   matchBody.add(

@@ -69,7 +69,8 @@ template notFast*(b: BunnyStr) =
     result.code = Http303
     setHeader(result.headers, "Location", "/")
     result.content = ""
-    result.matched = true  # this will cause the route code to be skipped
+    result.matched = true
+    result.completed = true  # this will cause the route code to be skipped
 
 subrouter hutchRouter:
   specific:
@@ -100,7 +101,7 @@ proc match(request: Request): Future[ResponseData] {.async, gcsafe.} =
     block routesList:
       if request.pathInfo.startsWith("/hutch"):
         b.notFast()
-      if result[4]:
+      if result.completed:
         break routesList
       case request.reqMethod
       of HttpGet:
@@ -124,13 +125,13 @@ proc match(request: Request): Future[ResponseData] {.async, gcsafe.} =
             if checkAction(result):
               result.matched = true
               break routesList
-        let patternMatchRet_580173 = match(@[
+        let patternMatchRet_580159 = match(@[
             Node(typ: NodeText, text: "/abc/", optional: false),
             Node(typ: NodeField, text: "name", optional: false)], request.pathInfo)
         block outerRoute:
-          if patternMatchRet_580173.matched:
+          if patternMatchRet_580159.matched:
             block route:
-              setPatternParams(request, patternMatchRet_580173.params)
+              setPatternParams(request, patternMatchRet_580159.params)
               b = @"name" & " " & b
               resp h1("Hello " & b)
             if checkAction(result):
@@ -155,10 +156,10 @@ A few "rules to live by" when writing a plugin library for the general public to
 1. Plugins have an expectation that *both* the "before" and "after" code will run. Please
    avoid writing a template or macro that returns from the generated `proc match`
    procedure. If you are wanting to avoid running the route code, such was when
-   redirecting, set `results.matched = true` rather than returning.
-2. The default is for `results.matched` to be `false`. So if your plugin sees
-   it set to `true`, that means another plugin had a good reason to do that.
-   Either leave it alone and remain `true` or fully document in your plugin why
+   redirecting, set `results.completed = true` rather than returning.
+2. The default is for `results.completed` to be `false`. So if your plugin sees
+   it set to `true`, that means another plugin had a good reason to change that.
+   Either leave it alone and let it remain `true`, or fully document in your plugin why
    you would reverse it back to `false`.
 3. Most plugins will simply read the `request` parameter. If you are going to
    modify it, please fully document why, when, and what in your plugin's
