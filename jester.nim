@@ -73,6 +73,11 @@ type
     of RouteCode:
       data: ResponseData
 
+  RouterTuple* = tuple[
+    router: proc (request: Request): ResponseData{.closure, noSideEffect, gcsafe, locks: 0.},
+    handler: proc (request: Request; error: RouteError): Future[ResponseData] {.closure, gcsafe.}
+  ]
+
 const jesterVer = "0.4.3"
 
 proc toStr(headers: Option[RawHeaders]): string =
@@ -1152,7 +1157,7 @@ proc needsAsync(node: NimNode): NeedsAsync =
     let r = needsAsync(c)
     if r in {ImplicitTrue, ExplicitTrue, ExplicitFalse}: return r
 
-proc routesEx(name: string, body: NimNode): NimNode =
+proc routesEx(name: string, body: NimNode, isClosure = false): NimNode =
   # echo(treeRepr(body))
   # echo(treeRepr(name))
 
@@ -1290,17 +1295,31 @@ proc routesEx(name: string, body: NimNode): NimNode =
     hint(fmt"Asynchronous route: {name}.")
   var matchProc =
     if needsAsync in {ImplicitTrue, ExplicitTrue}:
-      quote do:
-        proc `matchIdent`(
-          `reqIdent`: Request
-        ): Future[ResponseData] {.async, gcsafe.} =
-          discard
+      if isClosure:  # If this is a closure call, add the closure pragma
+        quote do:
+          proc `matchIdent`(
+            `reqIdent`: Request
+          ): Future[ReponseData] {.async, gcsafe, closure.} =
+            discard
+      else:
+        quote do:
+          proc `matchIdent`(
+            `reqIdent`: Request
+          ): Future[ResponseData] {.async, gcsafe.} =
+            discard
     else:
-      quote do:
-        proc `matchIdent`(
-          `reqIdent`: Request
-        ): ResponseData {.gcsafe.} =
-          discard
+      if isClosure:  # If this is a closure call, add the closure pragma
+        quote do:
+          proc `matchIdent`(
+            `reqIdent`: Request
+          ): ResponseData {.gcsafe, closure.} =
+            discard
+      else:
+        quote do:
+          proc `matchIdent`(
+            `reqIdent`: Request
+          ): ResponseData {.gcsafe.} =
+            discard
 
   # The following `block` is for `halt`. (`return` didn't work :/)
   let allRoutesBlock = newTree(
@@ -1317,17 +1336,31 @@ proc routesEx(name: string, body: NimNode): NimNode =
   let errorIdent = newIdentNode("error")
   let exceptionIdent = newIdentNode("exception")
   let resultIdent = newIdentNode("result")
-  var errorHandlerProc = quote do:
-    proc `errorHandlerIdent`(
-      `reqIdent`: Request, `errorIdent`: RouteError
-    ): Future[ResponseData] {.gcsafe, async.} =
-      block `routesListIdent`:
-        `setDefaultRespIdent`()
-        case `errorIdent`.kind
-        of RouteException:
-          discard
-        of RouteCode:
-          discard
+  var errorHandlerProc =
+    if isClosure:  # If this is a closure call, add the closure pragma
+      quote do:
+        proc `errorHandlerIdent`(
+          `reqIdent`: Request, `errorIdent`: RouteError
+        ): Future[ResponseData] {.gcsafe, async, closure.} =
+          block `routesListIdent`:
+            `setDefaultRespIdent`()
+            case `errorIdent`.kind
+            of RouteException:
+              discard
+            of RouteCode:
+              discard
+    else:
+      quote do:
+        proc `errorHandlerIdent`(
+          `reqIdent`: Request, `errorIdent`: RouteError
+        ): Future[ResponseData] {.gcsafe, async.} =
+          block `routesListIdent`:
+            `setDefaultRespIdent`()
+            case `errorIdent`.kind
+            of RouteException:
+              discard
+            of RouteCode:
+              discard
   if exceptionBranches.len != 0:
     var stmts = newStmtList()
     for branch in exceptionBranches:
@@ -1339,6 +1372,10 @@ proc routesEx(name: string, body: NimNode): NimNode =
       stmts.add(newIfStmt(branch))
     errorHandlerProc[6][0][1][^1][2][1][0] = stmts
   result.add(errorHandlerProc)
+
+  # If this is a closure, return the tuple of procs
+  result.add quote do:
+    return (router: `matchIdent`, handler: `errorHandlerIdent`)
 
   # TODO: Replace `body`, `headers`, `code` in routes with `result[i]` to
   # get these shortcuts back without sacrificing usability.
@@ -1368,6 +1405,12 @@ macro router*(name: untyped, body: untyped): typed =
     error("Need an ident.", name)
 
   routesEx($name.ident, body)
+
+macro routerClosure*(name: untyped, body: untyped): typed =
+  if name.kind != nnkIdent:
+    error("Need an ident.", name)
+
+  routesEx($name.ident, body, true)
 
 macro settings*(body: untyped): typed =
   #echo(treeRepr(body))
