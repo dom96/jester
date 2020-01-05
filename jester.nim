@@ -532,7 +532,7 @@ template resp*(code: HttpCode,
                content: string): typed =
   ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend
-  result = (TCActionSend, code, none[RawHeaders](), content, true)
+  result = (TCActionSend, code, none[RawHeaders](), content, true, false)
   for header in headers:
     setHeader(result[2], header[0], header[1])
   break route
