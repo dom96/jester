@@ -219,12 +219,31 @@ proc issue150(useStdLib: bool) =
       check resp.code == Http500
       check (waitFor resp.body).startsWith("Something bad happened")
 
+proc pluginTest(useStdLib: bool) =
+  waitFor startServer("pluginexample.nim", useStdLib)
+  var client = newAsyncHttpClient(maxRedirects = 0)
+
+  suite "pluginTest useStdLib=" & $useStdLib:
+    test "can use plugin variable":
+      let resp = waitFor client.get(address & "/")
+      check (waitFor resp.body) == "Hello Bunny"
+
+    test "works on a subrouter":
+      let resp = waitFor client.get(address & "/hutch/X")
+      check (waitFor resp.body) == "Hello Inside X"
+
+    test "handles skipping page code and redirect":
+      let resp = waitFor client.get(address & "/hutch/Fast")
+      check resp.code == Http303
+
 when isMainModule:
   try:
     allTest(useStdLib=false) # Test HttpBeast.
     allTest(useStdLib=true)  # Test asynchttpserver.
     issue150(useStdLib=false)
     issue150(useStdLib=true)
+    pluginTest(useStdLib=false)
+    pluginTest(useStdLib=true)
 
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":
