@@ -225,15 +225,32 @@ proc pluginTest(useStdLib: bool) =
 
   suite "pluginTest useStdLib=" & $useStdLib:
     test "can use plugin variable":
-      let resp = waitFor client.get(address & "/")
+      let resp = waitFor client.get(address & "/plugin")
       check (waitFor resp.body) == "Hello Bunny"
 
     test "works on a subrouter":
-      let resp = waitFor client.get(address & "/hutch/X")
-      check (waitFor resp.body) == "Hello Inside X"
+      let resp = waitFor client.get(address & "/plugin/hutch/X")
+      check (waitFor resp.body) == "Hello Inside X Bunny"
 
     test "handles skipping page code and redirect":
-      let resp = waitFor client.get(address & "/hutch/Fast")
+      let resp = waitFor client.get(address & "/plugin/hutch/Fast")
+      check resp.code == Http303
+
+proc pluginRtrTest(useStdLib: bool) =
+  waitFor startServer("pluginexamplertr.nim", useStdLib)
+  var client = newAsyncHttpClient(maxRedirects = 0)
+
+  suite "pluginRtrTest useStdLib=" & $useStdLib:
+    test "can use plugin variable":
+      let resp = waitFor client.get(address & "/pluginrtr")
+      check (waitFor resp.body) == "Hello Bunny"
+
+    test "works on a subrouter":
+      let resp = waitFor client.get(address & "/pluginrtr/hutch/X")
+      check (waitFor resp.body) == "Hello Inside X Bunny"
+
+    test "handles skipping page code and redirect":
+      let resp = waitFor client.get(address & "/pluginrtr/hutch/Fast")
       check resp.code == Http303
 
 when isMainModule:
@@ -242,8 +259,10 @@ when isMainModule:
     allTest(useStdLib=true)  # Test asynchttpserver.
     issue150(useStdLib=false)
     issue150(useStdLib=true)
-    # pluginTest(useStdLib=false)
-    # pluginTest(useStdLib=true)
+    pluginTest(useStdLib=false)
+    pluginTest(useStdLib=true)
+    pluginRtrTest(useStdLib=false)
+    pluginRtrTest(useStdLib=true)
 
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":

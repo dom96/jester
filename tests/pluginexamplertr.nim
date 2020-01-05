@@ -1,6 +1,7 @@
 import htmlgen
 import jester
 import strutils
+import asyncdispatch
 
 type
   BunnyStr = string
@@ -29,13 +30,7 @@ subrouter hutchRouter:
     b = @"name" & " " & b
     resp "Hello Inside " & b
 
-settings:
-  port = Port(5454)
-  appName = "/plugin"
-  bindAddr = "127.0.0.1"
-  staticDir = "tests/public"
-
-routes:
+router mainBunny:
   extend hutchRouter, "/hutch"
   plugin b <- haveBunny()
   get "/":
@@ -43,3 +38,14 @@ routes:
   get "/abc/@name":
     b = @"name" & " " & b
     resp "Hello " & b
+
+proc main() =
+  let port = 5454.Port
+  let appName = "/pluginrtr"
+  let bindAddr = "127.0.0.1"
+  let settings = newSettings(port=port, appName=appName, bindAddr=bindAddr)
+  var jester = initJester(mainBunny, settings=settings)
+  jester.serve()
+
+when isMainModule:
+  main()

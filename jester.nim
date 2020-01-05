@@ -1445,7 +1445,7 @@ macro router*(name: untyped, body: untyped): typed =
   if name.kind != nnkIdent:
     error("Need an ident.", name)
 
-  result = routesEx($name.ident, prime=false, body)
+  result = routesEx($name.ident, prime=true, body)
 
 macro subrouter*(name: untyped, body: untyped): typed =
   ## A ``subrouter`` is identical to a router except that it does NOT

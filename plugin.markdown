@@ -1,10 +1,10 @@
 # Plugins
 
-A plugin is a method of inserting code that runs before and after each
-page's route code.
+A plugin is a way of extending Jester in unique ways. Simply install a
+plugin library and add the plugin to your routes.
 
-It is intended to simplify extending Jester in unique ways by adding
-plugin libraries that perform extra functions.
+Behind the scenes, Nim's macro system adds the plugin code before and after
+each page route.
 
 ## Usage
 
