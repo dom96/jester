@@ -1288,38 +1288,31 @@ proc routesEx(name: string, body: NimNode, isClosure = false): NimNode =
   let matchIdent = newIdentNode(name)
   let reqIdent = newIdentNode("request")
   let needsAsync = needsAsync(body)
+  var matchPragma = nnkPragma.newTree(newIdentNode("gcsafe"))
+  if isClosure:
+    matchPragma.add(newIdentNode("closure"))
   case needsAsync
   of ImplicitFalse, ExplicitFalse:
     hint(fmt"Synchronous route `{name}` has been optimised. Use `{{.async.}}` to change.")
   of ImplicitTrue, ExplicitTrue:
+    matchPragma.add(newIdentNode("async"))
     hint(fmt"Asynchronous route: {name}.")
   var matchProc =
     if needsAsync in {ImplicitTrue, ExplicitTrue}:
-      if isClosure:  # If this is a closure call, add the closure pragma
-        quote do:
-          proc `matchIdent`(
-            `reqIdent`: Request
-          ): Future[ReponseData] {.async, gcsafe, closure.} =
-            discard
-      else:
-        quote do:
-          proc `matchIdent`(
-            `reqIdent`: Request
-          ): Future[ResponseData] {.async, gcsafe.} =
-            discard
+      quote do:
+        proc `matchIdent`(
+          `reqIdent`: Request
+        ): Future[ResponseData]  =
+          discard
     else:
-      if isClosure:  # If this is a closure call, add the closure pragma
-        quote do:
-          proc `matchIdent`(
-            `reqIdent`: Request
-          ): ResponseData {.gcsafe, closure.} =
-            discard
-      else:
-        quote do:
-          proc `matchIdent`(
-            `reqIdent`: Request
-          ): ResponseData {.gcsafe.} =
-            discard
+      quote do:
+        proc `matchIdent`(
+          `reqIdent`: Request
+        ): ResponseData  =
+          discard
+
+  # Add the pragmas in
+  matchProc[4] = matchPragma
 
   # The following `block` is for `halt`. (`return` didn't work :/)
   let allRoutesBlock = newTree(
@@ -1336,31 +1329,23 @@ proc routesEx(name: string, body: NimNode, isClosure = false): NimNode =
   let errorIdent = newIdentNode("error")
   let exceptionIdent = newIdentNode("exception")
   let resultIdent = newIdentNode("result")
+  var errorHandlerPragma = nnkPragma.newTree(newIdentNode("gcsafe"), newIdentNode("async"))
+  if isClosure:
+    errorHandlerPragma.add(newIdentNode("closure"))
   var errorHandlerProc =
-    if isClosure:  # If this is a closure call, add the closure pragma
-      quote do:
-        proc `errorHandlerIdent`(
-          `reqIdent`: Request, `errorIdent`: RouteError
-        ): Future[ResponseData] {.gcsafe, async, closure.} =
-          block `routesListIdent`:
-            `setDefaultRespIdent`()
-            case `errorIdent`.kind
-            of RouteException:
-              discard
-            of RouteCode:
-              discard
-    else:
-      quote do:
-        proc `errorHandlerIdent`(
-          `reqIdent`: Request, `errorIdent`: RouteError
-        ): Future[ResponseData] {.gcsafe, async.} =
-          block `routesListIdent`:
-            `setDefaultRespIdent`()
-            case `errorIdent`.kind
-            of RouteException:
-              discard
-            of RouteCode:
-              discard
+    quote do:
+      proc `errorHandlerIdent`(
+        `reqIdent`: Request, `errorIdent`: RouteError
+      ): Future[ResponseData] {.gcsafe, async.} =
+        block `routesListIdent`:
+          `setDefaultRespIdent`()
+          case `errorIdent`.kind
+          of RouteException:
+            discard
+          of RouteCode:
+            discard
+  # Add the pragmas in
+  errorHandlerProc[4] = errorHandlerPragma
   if exceptionBranches.len != 0:
     var stmts = newStmtList()
     for branch in exceptionBranches:
