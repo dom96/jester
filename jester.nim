@@ -526,7 +526,7 @@ template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
       headers = some(h & @({key: value}))
 
 template resp*(code: HttpCode,
-               headers: openarray[tuple[key, value: string]],
+               headers: openarray[tuple[key, val: string]],
                content: string): typed =
   ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend
