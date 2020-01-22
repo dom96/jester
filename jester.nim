@@ -90,31 +90,29 @@ proc createHeaders(headers: RawHeaders): string =
 proc createResponse(status: HttpCode, headers: RawHeaders): string =
   return "HTTP/1.1 " & $status & "\c\L" & createHeaders(headers) & "\c\L\c\L"
 
-proc unsafeSend(request: Request, content: string) =
+proc unsafeSend(request: Request, content: string) {.async.} =
   when useHttpBeast:
     request.getNativeReq.unsafeSend(content)
   else:
-    # TODO: This may cause issues if we send too fast.
-    asyncCheck request.getNativeReq.client.send(content)
+    await request.getNativeReq.client.send(content)
 
 proc send(
   request: Request, code: HttpCode, headers: Option[RawHeaders], body: string
-) =
+) {.async.} =
   when useHttpBeast:
     let h =
       if headers.isNone: ""
       else: headers.get().createHeaders
     request.getNativeReq.send(code, body, h)
   else:
-    # TODO: This may cause issues if we send too fast.
-    asyncCheck request.getNativeReq.respond(
+    await request.getNativeReq.respond(
       code, body, newHttpHeaders(headers.get(@({:})))
     )
 
 proc statusContent(request: Request, status: HttpCode, content: string,
-                   headers: Option[RawHeaders]) =
+                   headers: Option[RawHeaders]) {.async.} =
   try:
-    send(request, status, headers, content)
+    await send(request, status, headers, content)
     when not defined(release):
       logging.debug("  $1 $2" % [$status, toStr(headers)])
   except:
@@ -125,42 +123,42 @@ template enableRawMode* =
   # TODO: Use the effect system to make this implicit?
   result.action = TCActionRaw
 
-proc send*(request: Request, content: string) =
+proc send*(request: Request, content: string) {.async.} =
   ## Sends ``content`` immediately to the client socket.
   ##
   ## Routes using this procedure must enable raw mode.
-  unsafeSend(request, content)
+  await unsafeSend(request, content)
 
 proc sendHeaders*(request: Request, status: HttpCode,
-                  headers: RawHeaders) =
+                  headers: RawHeaders) {.async.} =
   ## Sends ``status`` and ``headers`` to the client socket immediately.
   ## The user is then able to send the content immediately to the client on
   ## the fly through the use of ``response.client``.
   let headerData = createResponse(status, headers)
   try:
-    request.send(headerData)
+    await request.send(headerData)
     logging.debug("  $1 $2" % [$status, $headers])
   except:
     logging.error("Could not send response: $1" % [osErrorMsg(osLastError())])
 
-proc sendHeaders*(request: Request, status: HttpCode) =
+proc sendHeaders*(request: Request, status: HttpCode) {.async.} =
   ## Sends ``status`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
   let headers = @({"Content-Type": "text/html;charset=utf-8"})
-  request.sendHeaders(status, headers)
+  await request.sendHeaders(status, headers)
 
-proc sendHeaders*(request: Request) =
+proc sendHeaders*(request: Request) {.async.} =
   ## Sends ``Http200`` and ``Content-Type: text/html`` as the headers to the
   ## client socket immediately.
-  request.sendHeaders(Http200)
+  await request.sendHeaders(Http200)
 
 proc send*(request: Request, status: HttpCode, headers: RawHeaders,
-           content: string) =
+           content: string) {.async.} =
   ## Sends out a HTTP response comprising of the ``status``, ``headers`` and
   ## ``content`` specified.
   var headers = headers & @({"Content-Length": $content.len})
-  request.sendHeaders(status, headers)
-  request.send(content)
+  await request.sendHeaders(status, headers)
+  await request.send(content)
 
 # TODO: Cannot capture 'paths: varargs[string]' here.
 proc sendStaticIfExists(
@@ -188,18 +186,18 @@ proc sendStaticIfExists(
         # If the user has a cached version of this file and it matches our
         # version, let them use it
         if req.headers.hasKey("If-None-Match") and req.headers["If-None-Match"] == hashed:
-          req.statusContent(Http304, "", none[RawHeaders]())
+          await req.statusContent(Http304, "", none[RawHeaders]())
         else:
-          req.statusContent(Http200, file, some(@({
-                              "Content-Type": mimetype,
-                              "ETag": hashed
-                            })))
+          await req.statusContent(Http200, file, some(@({
+            "Content-Type": mimetype,
+            "ETag": hashed
+          })))
       else:
         let headers = @({
           "Content-Type": mimetype,
           "Content-Length": $fileSize
         })
-        req.statusContent(Http200, "", some(headers))
+        await req.statusContent(Http200, "", some(headers))
 
         var fileStream = newFutureStream[string]("sendStaticIfExists")
         var file = openAsync(p, fmRead)
@@ -211,7 +209,7 @@ proc sendStaticIfExists(
         while true:
           let (hasValue, value) = await fileStream.read()
           if hasValue:
-            req.unsafeSend(value)
+            await req.unsafeSend(value)
           else:
             break
         file.close()
@@ -227,7 +225,7 @@ proc close*(request: Request) =
   ## Routes using this procedure must enable raw mode.
   let nativeReq = request.getNativeReq()
   when useHttpBeast:
-    nativeReq.forget()  
+    nativeReq.forget()
   nativeReq.client.close()
 
 proc defaultErrorFilter(error: RouteError): ResponseData =
@@ -363,7 +361,7 @@ proc handleRequestSlow(
         not dispatchedError and respData.content.len == 0:
       respData = await dispatchError(jes, req, initRouteError(respData))
 
-    statusContent(
+    await statusContent(
       req,
       respData.code,
       respData.content,
@@ -375,7 +373,7 @@ proc handleRequestSlow(
 
   # Cannot close the client socket. AsyncHttpServer may be keeping it alive.
 
-proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
+proc handleRequest(jes: Jester, httpReq: NativeRequest) {.async.} =
   var req = initRequest(httpReq, jes.settings)
   try:
     when not defined(release):
@@ -384,23 +382,20 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
     if likely(jes.matchers.len == 1 and not jes.matchers[0].async):
       let respData = jes.matchers[0].syncProc(req)
       if likely(respData.matched):
-        statusContent(
+        await statusContent(
           req,
           respData.code,
           respData.content,
           respData.headers
         )
       else:
-        return handleRequestSlow(jes, req, respData, false)
+        await handleRequestSlow(jes, req, respData, false)
     else:
-      return handleRequestSlow(jes, req, dispatch(jes, req), false)
+      await handleRequestSlow(jes, req, dispatch(jes, req), false)
   except:
     let exc = getCurrentException()
     let respDataFut = dispatchError(jes, req, initRouteError(exc))
-    return handleRequestSlow(jes, req, respDataFut, true)
-  let future = newFuture[void]()
-  complete(future)
-  return future
+    await handleRequestSlow(jes, req, respDataFut, true)
 
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
