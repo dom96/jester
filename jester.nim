@@ -906,7 +906,7 @@ proc createGlobalMetaRoute(routeNode, dest: NimNode) {.compileTime.} =
   dest.add blockStmt
 
 proc createRoute(
-  routeNode, dest: NimNode, pathPrefix: string, isMetaRoute: bool = false
+  routeNode, dest: NimNode, pluginRouteStmts: NimNode, pathPrefix: string, isMetaRoute: bool = false
 ) {.compileTime.} =
   ## Creates code which checks whether the current request path
   ## matches a route.
@@ -946,6 +946,7 @@ proc createRoute(
     ifStmtBody.add newCall(bindSym"setReMatches", newIdentNode"request",
                            reMatchesSym)
 
+  ifStmtBody &= pluginRouteStmts
   ifStmtBody.add routeNode[2].skipDo()
 
   let checkActionIf =
@@ -1056,6 +1057,7 @@ proc processRoutesBody(
   # For other statements.
   outsideStmts,
   pluginBeforeStmts,
+  pluginRouteStmts,
   pluginAfterStmts: var NimNode,
   specificStmts: var Table[string, NimNode],
   pathPrefix: string
@@ -1078,47 +1080,52 @@ proc processRoutesBody(
       case cmdName
       # HTTP Methods
       of "get":
-        createRoute(body[i], caseStmtGetBody, pathPrefix)
-        # caseStmtGetBody.add()
+        createRoute(body[i], caseStmtGetBody, pluginRouteStmts, pathPrefix)
       of "post":
-        createRoute(body[i], caseStmtPostBody, pathPrefix)
+        createRoute(body[i], caseStmtPostBody, pluginRouteStmts, pathPrefix)
       of "put":
-        createRoute(body[i], caseStmtPutBody, pathPrefix)
+        createRoute(body[i], caseStmtPutBody, pluginRouteStmts, pathPrefix)
       of "delete":
-        createRoute(body[i], caseStmtDeleteBody, pathPrefix)
+        createRoute(body[i], caseStmtDeleteBody, pluginRouteStmts, pathPrefix)
       of "head":
-        createRoute(body[i], caseStmtHeadBody, pathPrefix)
+        createRoute(body[i], caseStmtHeadBody, pluginRouteStmts, pathPrefix)
       of "options":
-        createRoute(body[i], caseStmtOptionsBody, pathPrefix)
+        createRoute(body[i], caseStmtOptionsBody, pluginRouteStmts, pathPrefix)
       of "trace":
-        createRoute(body[i], caseStmtTraceBody, pathPrefix)
+        createRoute(body[i], caseStmtTraceBody, pluginRouteStmts, pathPrefix)
       of "connect":
-        createRoute(body[i], caseStmtConnectBody, pathPrefix)
+        createRoute(body[i], caseStmtConnectBody, pluginRouteStmts, pathPrefix)
       of "patch":
-        createRoute(body[i], caseStmtPatchBody, pathPrefix)
+        createRoute(body[i], caseStmtPatchBody, pluginRouteStmts, pathPrefix)
       # Other
       of "error":
         createError(body[i], httpCodeBranches, exceptionBranches)
       of "before":
-        createRoute(body[i], beforeStmts, pathPrefix, isMetaRoute=true)
+        createRoute(body[i], beforeStmts, newStmtList(), pathPrefix, isMetaRoute=true)
       of "after":
-        createRoute(body[i], afterStmts, pathPrefix, isMetaRoute=true)
+        createRoute(body[i], afterStmts, newStmtList(), pathPrefix, isMetaRoute=true)
       of "plugin":
         let varName = $body[i][1][1]
         var procNode = body[i][1][2]
         let baseName = $procNode[0]
         #
-        procNode[0] = ident(baseName & "_before")
+        procNode[0] = ident(baseName)
         procNode.insert(1, ident("result"))
         procNode.insert(1, ident("request"))
         var procLit = toStrLit(procNode)
         let newBefore = parseExpr("var $1 = $2".format(varName, procLit))
         pluginBeforeStmts.add(newBefore)
         #
-        procNode = newCall(baseName & "_after", ident("request"), ident("result"))
+        let pluginRouteName = baseName & "_route"
+        procNode = newCall(pluginRouteName, ident("request"), ident("result"))
         procNode.add ident(varName)
-        procLit = toStrLit(procNode)
-        let newAfter = parseExpr($procLit)
+        let newPluginRoute = parseExpr($toStrLit(procNode))
+        pluginRouteStmts.insert(0, newPluginRoute)
+        #
+        let afterName = baseName & "_after"
+        procNode = newCall(afterName, ident("request"), ident("result"))
+        procNode.add ident(varName)
+        let newAfter = parseExpr($toStrLit(procNode))
         pluginAfterStmts.insert(0, newAfter)
       of "specific":
         discard
@@ -1156,6 +1163,7 @@ proc processRoutesBody(
           afterStmts,
           outsideStmts,
           pluginBeforeStmts,
+          pluginRouteStmts,
           pluginAfterStmts,
           specificStmts,
           pathPrefix & prefix
@@ -1252,6 +1260,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
 
   # Plugin nodes:
   var pluginBeforeStmts = newStmtList()
+  var pluginRouteStmts = newStmtList()
   var pluginAfterStmts = newStmtList()
 
   # Router-specific 'before' stmts
@@ -1274,6 +1283,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
     afterRoutes,
     outsideStmts,
     pluginBeforeStmts,
+    pluginRouteStmts,
     pluginAfterStmts,
     specificStmts,
     ""
@@ -1422,7 +1432,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
   # get these shortcuts back without sacrificing usability.
   # TODO2: Make sure you replace what `guessAction` used to do for this.
 
-  # echo toStrLit(result)
+  echo toStrLit(result)
   # echo treeRepr(result)
 
 macro routes*(body: untyped): typed =
