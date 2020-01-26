@@ -1119,13 +1119,13 @@ proc processRoutesBody(
         let pluginRouteName = baseName & "_route"
         procNode = newCall(pluginRouteName, ident("request"), ident("result"))
         procNode.add ident(varName)
-        let newPluginRoute = parseExpr($toStrLit(procNode))
+        let newPluginRoute = parseExpr("when declared($1): $2".format(pluginRouteName, toStrLit(procNode)))
         pluginRouteStmts.insert(0, newPluginRoute)
         #
         let afterName = baseName & "_after"
         procNode = newCall(afterName, ident("request"), ident("result"))
         procNode.add ident(varName)
-        let newAfter = parseExpr($toStrLit(procNode))
+        let newAfter = parseExpr("when declared($1): $2".format(afterName, toStrLit(procNode)))
         pluginAfterStmts.insert(0, newAfter)
       of "specific":
         discard
@@ -1432,7 +1432,7 @@ proc routesEx(name: string, prime=true, body: NimNode): NimNode =
   # get these shortcuts back without sacrificing usability.
   # TODO2: Make sure you replace what `guessAction` used to do for this.
 
-  echo toStrLit(result)
+  # echo toStrLit(result)
   # echo treeRepr(result)
 
 macro routes*(body: untyped): typed =

@@ -5,8 +5,10 @@ import strutils
 type
   BunnyStr = string
 
-proc haveBunny_before*(request: Request, response: ResponseData): BunnyStr =
+proc haveBunny*(request: Request, response: ResponseData): BunnyStr =
   result = "Bunny"
+
+# haveBunny_route not defined (testing conditional compilation)
 
 proc haveBunny_after*(request: Request, response: ResponseData, b: BunnyStr) =
   if b.startsWith("Bugs"):

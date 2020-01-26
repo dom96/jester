@@ -6,8 +6,11 @@ import asyncdispatch
 type
   BunnyStr = string
 
-proc haveBunny_before*(request: Request, response: ResponseData): BunnyStr =
+proc haveBunny*(request: Request, response: ResponseData): BunnyStr =
   result = "Bunny"
+
+proc haveBunny_route*(request: Request, response: ResponseData, b: BunnyStr) =
+  discard
 
 proc haveBunny_after*(request: Request, response: ResponseData, b: BunnyStr) =
   if b.startsWith("Bugs"):
