@@ -516,11 +516,12 @@ template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
     block outer:
       # Overwrite key if it exists.
       var h = headers.get()
-      for i in 0 ..< h.len:
-        if h[i][0] == key:
-          h[i][1] = value
-          headers = some(h)
-          break outer
+      if key != "Set-cookie": # multiple cookies should be allowed
+        for i in 0 ..< h.len:
+          if h[i][0] == key:
+            h[i][1] = value
+            headers = some(h)
+            break outer
 
       # Add key if it doesn't exist.
       headers = some(h & @({key: value}))
