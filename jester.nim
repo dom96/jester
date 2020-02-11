@@ -500,6 +500,9 @@ proc serve*(
     let serveFut = self.httpServer.serve(
       self.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
+        when (NimMajor, NimMinor) >= (1, 1):
+          # read all body from future sream
+          req.body = await req.bodyStream.readAll();
         result = handleRequest(jes, req),
       self.settings.bindAddr)
     if not self.settings.futureErrorHandler.isNil:
