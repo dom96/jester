@@ -99,22 +99,24 @@ proc unsafeSend(request: Request, content: string) =
 
 proc send(
   request: Request, code: HttpCode, headers: Option[RawHeaders], body: string
-) =
+): Future[void] =
   when useHttpBeast:
     let h =
       if headers.isNone: ""
       else: headers.get().createHeaders
     request.getNativeReq.send(code, body, h)
+    var fut = newFuture[void]()
+    complete(fut)
+    return fut
   else:
-    # TODO: This may cause issues if we send too fast.
-    asyncCheck request.getNativeReq.respond(
+    return request.getNativeReq.respond(
       code, body, newHttpHeaders(headers.get(@({:})))
     )
 
 proc statusContent(request: Request, status: HttpCode, content: string,
-                   headers: Option[RawHeaders]) =
+                   headers: Option[RawHeaders]): Future[void] =
   try:
-    send(request, status, headers, content)
+    result = send(request, status, headers, content)
     when not defined(release):
       logging.debug("  $1 $2" % [$status, toStr(headers)])
   except:
@@ -188,18 +190,18 @@ proc sendStaticIfExists(
         # If the user has a cached version of this file and it matches our
         # version, let them use it
         if req.headers.hasKey("If-None-Match") and req.headers["If-None-Match"] == hashed:
-          req.statusContent(Http304, "", none[RawHeaders]())
+          await req.statusContent(Http304, "", none[RawHeaders]())
         else:
-          req.statusContent(Http200, file, some(@({
-                              "Content-Type": mimetype,
-                              "ETag": hashed
-                            })))
+          await req.statusContent(Http200, file, some(@({
+            "Content-Type": mimetype,
+            "ETag": hashed
+          })))
       else:
         let headers = @({
           "Content-Type": mimetype,
           "Content-Length": $fileSize
         })
-        req.statusContent(Http200, "", some(headers))
+        await req.statusContent(Http200, "", some(headers))
 
         var fileStream = newFutureStream[string]("sendStaticIfExists")
         var file = openAsync(p, fmRead)
@@ -227,7 +229,7 @@ proc close*(request: Request) =
   ## Routes using this procedure must enable raw mode.
   let nativeReq = request.getNativeReq()
   when useHttpBeast:
-    nativeReq.forget()  
+    nativeReq.forget()
   nativeReq.client.close()
 
 proc defaultErrorFilter(error: RouteError): ResponseData =
@@ -363,7 +365,7 @@ proc handleRequestSlow(
         not dispatchedError and respData.content.len == 0:
       respData = await dispatchError(jes, req, initRouteError(respData))
 
-    statusContent(
+    await statusContent(
       req,
       respData.code,
       respData.content,
@@ -384,7 +386,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
     if likely(jes.matchers.len == 1 and not jes.matchers[0].async):
       let respData = jes.matchers[0].syncProc(req)
       if likely(respData.matched):
-        statusContent(
+        return statusContent(
           req,
           respData.code,
           respData.content,
@@ -398,9 +400,6 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
     let exc = getCurrentException()
     let respDataFut = dispatchError(jes, req, initRouteError(exc))
     return handleRequestSlow(jes, req, respDataFut, true)
-  let future = newFuture[void]()
-  complete(future)
-  return future
 
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
