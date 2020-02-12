@@ -400,6 +400,8 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
     let exc = getCurrentException()
     let respDataFut = dispatchError(jes, req, initRouteError(exc))
     return handleRequestSlow(jes, req, respDataFut, true)
+  
+  assert(not result.isNil, "Expected handleRequest to return a valid future.")
 
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
