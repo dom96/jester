@@ -57,7 +57,7 @@ routes:
     redirect(uri(@"url"))
 
   get "/win":
-    cond random(5) < 3
+    cond rand(5) < 3
     resp "<b>You won!</b>"
 
   get "/win":
