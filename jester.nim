@@ -1,6 +1,6 @@
 # Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import net, strtabs, re, tables, parseutils, os, strutils, uri,
+import net, strtabs, re, tables, os, strutils, uri,
        times, mimetypes, asyncnet, asyncdispatch, macros, md5,
        logging, httpcore, asyncfile, macrocache, json, options,
        strformat
@@ -400,7 +400,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
     let exc = getCurrentException()
     let respDataFut = dispatchError(jes, req, initRouteError(exc))
     return handleRequestSlow(jes, req, respDataFut, true)
-  
+
   assert(not result.isNil, "Expected handleRequest to return a valid future.")
 
 proc newSettings*(
@@ -712,11 +712,11 @@ template uri*(address = "", absolute = true, addScriptName = true): untyped =
 
 proc daysForward*(days: int): DateTime =
   ## Returns a DateTime object referring to the current time plus ``days``.
-  return getTime().utc + initInterval(days = days)
+  return getTime().utc + initTimeInterval(days = days)
 
 template setCookie*(name, value: string, expires="",
                     sameSite: SameSite=Lax, secure = false,
-                    httpOnly = false, domain = "", path = ""): typed =
+                    httpOnly = false, domain = "", path = "") =
   ## Creates a cookie which stores ``value`` under ``name``.
   ##
   ## The SameSite argument determines the level of CSRF protection that
@@ -733,7 +733,7 @@ template setCookie*(name, value: string, expires="",
 
 template setCookie*(name, value: string, expires: DateTime,
                     sameSite: SameSite=Lax, secure = false,
-                    httpOnly = false, domain = "", path = ""): typed =
+                    httpOnly = false, domain = "", path = "") =
   ## Creates a cookie which stores ``value`` under ``name``.
   setCookie(name, value,
             format(expires.utc, "ddd',' dd MMM yyyy HH:mm:ss 'GMT'"),
@@ -799,14 +799,14 @@ proc ctParsePattern(pattern, pathPrefix: string): NimNode {.compiletime.} =
       newStrLitNode(node.text),
       newIdentNode(if node.optional: "true" else: "false"))
 
-template setDefaultResp*(): typed =
+template setDefaultResp*() =
   # TODO: bindSym this in the 'routes' macro and put it in each route
   bind TCActionNothing, newHttpHeaders
   result.action = TCActionNothing
   result.code = Http200
   result.content = ""
 
-template declareSettings(): typed {.dirty.} =
+template declareSettings() {.dirty.} =
   when not declaredInScope(settings):
     var settings = newSettings()
 
@@ -1348,7 +1348,7 @@ proc routesEx(name: string, body: NimNode): NimNode =
   # echo toStrLit(result)
   # echo treeRepr(result)
 
-macro routes*(body: untyped): typed =
+macro routes*(body: untyped) =
   result = routesEx("match", body)
   let jesIdent = genSym(nskVar, "jes")
   let matchIdent = newIdentNode("match")
@@ -1364,13 +1364,13 @@ macro routes*(body: untyped): typed =
       serve(`jesIdent`)
   )
 
-macro router*(name: untyped, body: untyped): typed =
+macro router*(name: untyped, body: untyped) =
   if name.kind != nnkIdent:
     error("Need an ident.", name)
 
-  routesEx($name.ident, body)
+  routesEx(strVal(name), body)
 
-macro settings*(body: untyped): typed =
+macro settings*(body: untyped) =
   #echo(treeRepr(body))
   expectKind(body, nnkStmtList)
 
