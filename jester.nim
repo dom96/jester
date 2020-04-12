@@ -514,18 +514,8 @@ template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
   if isNone(headers):
     headers = some(@({key: value}))
   else:
-    block outer:
-      # Overwrite key if it exists.
-      var h = headers.get()
-      if key != "Set-cookie": # multiple cookies should be allowed
-        for i in 0 ..< h.len:
-          if h[i][0] == key:
-            h[i][1] = value
-            headers = some(h)
-            break outer
-
-      # Add key if it doesn't exist.
-      headers = some(h & @({key: value}))
+    let h = headers.get()
+    headers = some(h & @({key: value}))
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, val: string]],
