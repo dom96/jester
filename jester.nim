@@ -514,8 +514,22 @@ template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
   if isNone(headers):
     headers = some(@({key: value}))
   else:
-    let h = headers.get()
-    headers = some(h & @({key: value}))
+    var h = headers.get()
+    var isContains = false
+    var n = 0
+    for i, row in h:
+      if toLowerAscii(row[0]) == toLowerAscii(key):
+        isContains = true
+        n = i
+        break
+
+    if not isContains or toLowerAscii(key) == "set-cookie":
+      # Add new key and value
+      headers = some(h & @({key: value}))
+    else:
+      # add to existing value
+      h[n][1] = h[n][1] & ", " & value
+      headers = some(h)
 
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, val: string]],
