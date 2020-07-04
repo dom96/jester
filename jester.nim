@@ -201,7 +201,7 @@ proc sendStaticIfExists(
           "Content-Type": mimetype,
           "Content-Length": $fileSize
         })
-        await req.statusContent(Http200, "", some(headers))
+        req.unsafeSend(createResponse(Http200, headers))
 
         var fileStream = newFutureStream[string]("sendStaticIfExists")
         var file = openAsync(p, fmRead)
