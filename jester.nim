@@ -307,8 +307,9 @@ proc handleFileRequest(
 ): Future[ResponseData] {.async.} =
   # Find static file.
   # TODO: Caching.
-  let path = normalizedPath(
-    jes.settings.staticDir / cgi.decodeUrl(req.pathInfo)
+  # no need to normalize staticDir since it is normalized in `newSettings`
+  let path = jes.settings.staticDir / normalizedPath(
+    cgi.decodeUrl(req.pathInfo)
   )
 
   # Verify that this isn't outside our static dir.
@@ -409,7 +410,7 @@ proc newSettings*(
   futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
 ): Settings =
   result = Settings(
-    staticDir: staticDir,
+    staticDir: normalizedPath(staticDir),
     appName: appName,
     port: port,
     bindAddr: bindAddr,
