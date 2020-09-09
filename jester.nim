@@ -53,10 +53,11 @@ type
     MRegex, MSpecial, MStatic
 
   RawHeaders* = seq[tuple[key, val: string]]
+  ResponseHeaders* = Option[RawHeaders]
   ResponseData* = tuple[
     action: CallbackAction,
     code: HttpCode,
-    headers: Option[RawHeaders],
+    headers: ResponseHeaders,
     content: string,
     matched: bool
   ]
@@ -510,7 +511,7 @@ proc serve*(
       asyncCheck serveFut
     runForever()
 
-template setHeader(headers: var Option[RawHeaders], key, value: string): typed =
+template setHeader(headers: var ResponseHeaders, key, value: string): typed =
   bind isNone
   if isNone(headers):
     headers = some(@({key: value}))
@@ -711,9 +712,23 @@ template uri*(address = "", absolute = true, addScriptName = true): untyped =
   ## Convenience template which can be used in a route.
   request.makeUri(address, absolute, addScriptName)
 
+template responseHeaders*(): var ResponseHeaders =
+  ## Access the Option[RawHeaders] response headers
+  result[2]
+
 proc daysForward*(days: int): DateTime =
   ## Returns a DateTime object referring to the current time plus ``days``.
   return getTime().utc + initTimeInterval(days = days)
+
+template setCookie*(headersOpt: var ResponseHeaders, name, value: string, expires="",
+                    sameSite: SameSite=Lax, secure = false,
+                    httpOnly = false, domain = "", path = "") =
+  let newCookie = makeCookie(name, value, expires, domain, path, secure, httpOnly, sameSite)
+  if isSome(headersOpt) and
+     (let headers = headersOpt.get(); headers.toTable.hasKey("Set-Cookie")):
+    headersOpt = some(headers & @({"Set-Cookie": newCookie}))
+  else:
+    setHeader(headersOpt, "Set-Cookie", newCookie)
 
 template setCookie*(name, value: string, expires="",
                     sameSite: SameSite=Lax, secure = false,
@@ -725,12 +740,7 @@ template setCookie*(name, value: string, expires="",
   ## should protect you from most vulnerabilities. Note that this is only
   ## supported by some browsers:
   ## https://caniuse.com/#feat=same-site-cookie-attribute
-  let newCookie = makeCookie(name, value, expires, domain, path, secure, httpOnly, sameSite)
-  if isSome(result[2]) and
-     (let headers = result[2].get(); headers.toTable.hasKey("Set-Cookie")):
-    result[2] = some(headers & @({"Set-Cookie": newCookie}))
-  else:
-    setHeader(result[2], "Set-Cookie", newCookie)
+  responseHeaders.setCookie(name, value, expires, sameSite, secure, httpOnly, domain, path)
 
 template setCookie*(name, value: string, expires: DateTime,
                     sameSite: SameSite=Lax, secure = false,
