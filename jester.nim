@@ -344,17 +344,18 @@ proc handleRequestSlow(
   var respData: ResponseData
 
   # httpReq.send(Http200, "Hello, World!", "")
-  try:
-    when respDataFut is Future[ResponseData]:
-      respData = await respDataFut
+  when respDataFut is Future[ResponseData]:
+    yield respDataFut
+    if respDataFut.failed:
+      # Handle any errors by showing them in the browser.
+      # TODO: Improve the look of this.
+      let exc = respDataFut.readError()
+      respData = await dispatchError(jes, req, initRouteError(exc))
+      dispatchedError = true
     else:
-      respData = respDataFut
-  except:
-    # Handle any errors by showing them in the browser.
-    # TODO: Improve the look of this.
-    let exc = getCurrentException()
-    respData = await dispatchError(jes, req, initRouteError(exc))
-    dispatchedError = true
+      respData = respDataFut.read()
+  else:
+    respData = respDataFut
 
   # TODO: Put this in a custom matcher?
   if not respData.matched:
