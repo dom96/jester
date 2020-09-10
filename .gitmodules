@@ -1,0 +1,3 @@
+[submodule "tests/nim-in-action-code"]
+	path = tests/nim-in-action-code
+	url = https://github.com/dom96/nim-in-action-code.git
