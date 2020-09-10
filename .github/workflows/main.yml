@@ -20,6 +20,8 @@ jobs:
         - windows-latest
     steps:
     - uses: actions/checkout@v1
+      with:
+        submodules: true
     - uses: iffy/install-nim@v1.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
