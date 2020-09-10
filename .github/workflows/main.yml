@@ -1,0 +1,31 @@
+name: tests
+on:
+  push:
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        nimversion:
+        - stable
+        - devel
+        os:
+        - ubuntu-latest
+        - macOS-latest
+        - windows-latest
+    steps:
+    - uses: actions/checkout@v1
+    - uses: iffy/install-nim@v1.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        nimversion: ${{ matrix.nimversion }}
+    - name: Test
+      run: |
+        nimble test
+        nimble refresh
