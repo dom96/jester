@@ -11,12 +11,20 @@ const
 var serverProcess: AsyncProcess
 
 proc readLoop(process: AsyncProcess) {.async.} =
-  while process.running:
+  var wholebuf: string
+  while true:
     var buf = newString(256)
     let len = await readInto(process.outputHandle, addr buf[0], 256)
+    if len == 0:
+      break
     buf.setLen(len)
-    styledEcho(fgBlue, "Process: ", resetStyle, buf.strip())
-
+    wholebuf.add(buf)
+    while "\l" in wholebuf:
+      let parts = wholebuf.split("\l", 1)
+      styledEcho(fgBlue, "Process: ", resetStyle, parts[0])
+      wholebuf = parts[1]
+  if wholebuf != "":
+    styledEcho(fgBlue, "Process: ", resetStyle, wholebuf)
   styledEcho(fgRed, "Process terminated")
 
 proc startServer(file: string, useStdLib: bool) {.async.} =
