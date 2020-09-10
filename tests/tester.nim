@@ -240,7 +240,11 @@ when isMainModule:
 
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":
-      let path = "tests/nim-in-action-code/Chapter7/Tweeter/src/tweeter.nim"
-      check execCmd("nim c --path:. " & path) == QuitSuccess
+      let niminaction_path = "tests/nim-in-action-code"
+      if not niminaction_path.existsDir:
+        checkpoint "Fetching Nim in Action code..."
+        check execCmd("git clone https://github.com/dom96/nim-in-action-code.git " & niminaction_path) == QuitSuccess
+      let tweeter_path = niminaction_path / "Chapter7" / "Tweeter" / "src" / "tweeter.nim"
+      check execCmd("nim c --path:. " & tweeter_path) == QuitSuccess
   finally:
     doAssert execCmd("kill -15 " & $serverProcess.processID()) == QuitSuccess
