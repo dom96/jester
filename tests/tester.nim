@@ -48,10 +48,10 @@ proc startServer(file: string, useStdLib: bool) {.async.} =
   asyncCheck readLoop(serverProcess)
 
   # Wait until server responds:
-
+  await sleepAsync(10) # give it a chance to start
   for i in 0..10:
     var client = newAsyncHttpClient()
-    styledEcho(fgBlue, "Getting ", address)
+    styledEcho(fgBlue, "Getting ", address, " - attempt " & $i)
     let fut = client.get(address)
     yield fut or sleepAsync(3000)
     if not fut.finished:
@@ -61,6 +61,8 @@ proc startServer(file: string, useStdLib: bool) {.async.} =
       return
     else: echo fut.error.msg
     client.close()
+    if not serverProcess.running:
+      doAssert false, "Server died."
     await sleepAsync(1000)
 
   doAssert false, "Failed to start server."
@@ -72,6 +74,8 @@ proc allTest(useStdLib: bool) =
   test "doesn't crash on missing script name":
     # If this fails then alltest is likely not running.
     let resp = waitFor client.get(address)
+    checkpoint (waitFor resp.body)
+    checkpoint $resp.code
     check resp.code.is5xx
 
   test "can access root":
