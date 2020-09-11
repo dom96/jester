@@ -45,6 +45,12 @@ routes:
 
   get "/halt":
     resp "<h1>Not halted!</h1>"
+  
+  before re"/halt-before/.*?":
+    halt Http502, "Halted!"
+  
+  get "/halt-before/@something":
+    resp "Should never reach this"
 
   get "/guess/@who":
     if @"who" != "Frank": pass()
@@ -55,6 +61,16 @@ routes:
 
   get "/redirect/@url/?":
     redirect(uri(@"url"))
+  
+  get "/redirect-halt/@url/?":
+    redirect(uri(@"url"))
+    resp "ok"
+  
+  before re"/redirect-before/.*?":
+    redirect(uri("/nowhere"))
+  
+  get "/redirect-before/@url/?":
+    resp "should not get here"
 
   get "/win":
     cond rand(5) < 3
