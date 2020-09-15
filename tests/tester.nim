@@ -82,6 +82,11 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/halt")
     check resp.status.startsWith("502")
     check (waitFor resp.body) == "I'm sorry, this page has been halted."
+  
+  test "/halt-before":
+    let resp = waitFor client.request(address & "/foo/halt-before/something", HttpGet)
+    let body = waitFor resp.body
+    check body == "Halted!"
 
   test "/guess":
     let resp = waitFor client.get(address & "/foo/guess/foo")
@@ -92,6 +97,17 @@ proc allTest(useStdLib: bool) =
   test "/redirect":
     let resp = waitFor client.request(address & "/foo/redirect/halt", HttpGet)
     check resp.headers["location"] == "http://localhost:5454/foo/halt"
+  
+  test "/redirect-halt":
+    let resp = waitFor client.request(address & "/foo/redirect-halt/halt", HttpGet)
+    check resp.headers["location"] == "http://localhost:5454/foo/halt"
+    check (waitFor resp.body) == ""
+  
+  test "/redirect-before":
+    let resp = waitFor client.request(address & "/foo/redirect-before/anywhere", HttpGet)
+    check resp.headers["location"] == "http://localhost:5454/foo/nowhere"
+    let body = waitFor resp.body
+    check body == ""
 
   test "regex":
     let resp = waitFor client.get(address & "/foo/02.html")

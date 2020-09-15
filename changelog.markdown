@@ -1,5 +1,9 @@
 # Jester changelog
 
+## x.x.x - xx/xx/xxxx
+
+- **Breaking change:** By default `redirect` now skips future handlers, including when used in a `before` route.  To retain the old behavior, set the parameter `halt=false` (e.g. `redirect("/somewhere", halt=false)`)
+
 ## 0.4.3 - 12/08/2019
 
 Minor release correcting a few packaging issues and includes some other
