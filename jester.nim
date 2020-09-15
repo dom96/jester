@@ -578,7 +578,9 @@ template resp*(code: HttpCode): typed =
 
 template redirect*(url: string, halt = true): typed =
   ## Redirects to ``url``. Returns from this request handler immediately.
+  ##
   ## If ``halt`` is true, skips executing future handlers, too.
+  ##
   ## Any set response headers are preserved for this request.
   bind TCActionSend, newHttpHeaders
   result[0] = TCActionSend
