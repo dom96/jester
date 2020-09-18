@@ -3,6 +3,7 @@
 ## 0.6.0 - ??/07/2021
 
 - **Breaking change:** the `@` operator used for retrieving request parameters now automatically decodes special characters using `decodeUrl`.
+- Fix for [#211](https://github.com/dom96/jester/issues/211) - custom routers now have the same error handling as normal routes.
 
 ## 0.5.0 - 17/10/2020
 
