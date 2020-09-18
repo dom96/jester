@@ -4,6 +4,8 @@
 
 - **Breaking change:** By default `redirect` now skips future handlers, including when used in a `before` route.  To retain the old behavior, set the parameter `halt=false` (e.g. `redirect("/somewhere", halt=false)`)
 
+- Fix for [#211](https://github.com/dom96/jester/issues/211) - custom routers now have the same error handling as normal routes.
+
 ## 0.4.3 - 12/08/2019
 
 Minor release correcting a few packaging issues and includes some other

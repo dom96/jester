@@ -42,6 +42,14 @@ type
     request: Request, error: RouteError
   ): Future[ResponseData] {.gcsafe, closure.}
 
+  MatchPair* = tuple
+    matcher: MatchProc
+    errorHandler: ErrorProc
+
+  MatchPairSync* = tuple
+    matcher: MatchProcSync
+    errorHandler: ErrorProc
+
   Jester* = object
     when not useHttpBeast:
       httpServer*: AsyncHttpServer
@@ -449,18 +457,20 @@ proc initJester*(
   result.errorHandlers = @[]
 
 proc initJester*(
-  matcher: MatchProc,
+  pair: MatchPair,
   settings: Settings = newSettings()
 ): Jester =
   result = initJester(settings)
-  result.register(matcher)
+  result.register(pair.matcher)
+  result.register(pair.errorHandler)
 
 proc initJester*(
-  matcher: MatchProcSync, # TODO: Annoying nim bug: `MatchProc | MatchProcSync` doesn't work.
+  pair: MatchPairSync, # TODO: Annoying nim bug: `MatchPair | MatchPairSync` doesn't work.
   settings: Settings = newSettings()
 ): Jester =
   result = initJester(settings)
-  result.register(matcher)
+  result.register(pair.matcher)
+  result.register(pair.errorHandler)
 
 proc serve*(
   self: var Jester
@@ -1288,7 +1298,7 @@ proc routesEx(name: string, body: NimNode): NimNode =
         `afterRoutes`
   )
 
-  let matchIdent = newIdentNode(name)
+  let matchIdent = newIdentNode(name & "Matcher")
   let reqIdent = newIdentNode("request")
   let needsAsync = needsAsync(body)
   case needsAsync
@@ -1348,6 +1358,26 @@ proc routesEx(name: string, body: NimNode): NimNode =
     errorHandlerProc[6][0][1][^1][2][1][0] = stmts
   result.add(errorHandlerProc)
 
+  # Pair the matcher and error matcher
+  let pairIdent = newIdentNode(name)
+  let matchProcVarIdent = newIdentNode(name & "MatchProc")
+  let errorProcVarIdent = newIdentNode(name & "ErrorProc")
+  if needsAsync in {ImplicitTrue, ExplicitTrue}:
+    # TODO: I don't understand why I have to assign these procs to intermediate
+    # variables in order to get them into the tuple.  It would be nice if it could
+    # just be:
+    #   let `pairIdent`: MatchPair = (`matchIdent`, `errorHandlerIdent`)
+    result.add quote do:
+      let `matchProcVarIdent`: MatchProc = `matchIdent`
+      let `errorProcVarIdent`: ErrorProc = `errorHandlerIdent`
+      let `pairIdent`: MatchPair = (`matchProcVarIdent`, `errorProcVarIdent`)
+  else:
+    result.add quote do:
+      let `matchProcVarIdent`: MatchProcSync = `matchIdent`
+      let `errorProcVarIdent`: ErrorProc = `errorHandlerIdent`
+      let `pairIdent`: MatchPairSync = (`matchProcVarIdent`, `errorProcVarIdent`)
+  
+
   # TODO: Replace `body`, `headers`, `code` in routes with `result[i]` to
   # get these shortcuts back without sacrificing usability.
   # TODO2: Make sure you replace what `guessAction` used to do for this.
@@ -1358,13 +1388,11 @@ proc routesEx(name: string, body: NimNode): NimNode =
 macro routes*(body: untyped) =
   result = routesEx("match", body)
   let jesIdent = genSym(nskVar, "jes")
-  let matchIdent = newIdentNode("match")
-  let errorHandlerIdent = newIdentNode("matchErrorHandler")
+  let pairIdent = newIdentNode("match")
   let settingsIdent = newIdentNode("settings")
   result.add(
     quote do:
-      var `jesIdent` = initJester(`matchIdent`, `settingsIdent`)
-      `jesIdent`.register(`errorHandlerIdent`)
+      var `jesIdent` = initJester(`pairIdent`, `settingsIdent`)
   )
   result.add(
     quote do:

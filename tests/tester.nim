@@ -235,12 +235,26 @@ proc issue150(useStdLib: bool) =
       check resp.code == Http500
       check (waitFor resp.body).startsWith("Something bad happened")
 
+proc customRouterTest(useStdLib: bool) =
+  waitFor startServer("customRouter.nim", useStdLib)
+  var client = newAsyncHttpClient(maxRedirects = 0)
+
+  suite "customRouter useStdLib=" & $useStdLib:
+    test "error handler":
+      let resp = waitFor client.get(address & "/raise")
+      check resp.code == Http500
+      let body = (waitFor resp.body)
+      checkpoint body
+      check body.startsWith("Something bad happened: Foobar")
+
 when isMainModule:
   try:
     allTest(useStdLib=false) # Test HttpBeast.
     allTest(useStdLib=true)  # Test asynchttpserver.
     issue150(useStdLib=false)
     issue150(useStdLib=true)
+    customRouterTest(useStdLib=false)
+    customRouterTest(useStdLib=true)
 
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":
