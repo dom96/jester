@@ -73,7 +73,7 @@ type
     of RouteCode:
       data: ResponseData
 
-const jesterVer = "0.4.3"
+const jesterVer = "0.5.0"
 
 proc toStr(headers: Option[RawHeaders]): string =
   return $newHttpHeaders(headers.get(@({:})))

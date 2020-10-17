@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.4.3" # Be sure to update jester.jesterVer too!
+version       = "0.5.0" # Be sure to update jester.jesterVer too!
 author        = "Dominik Picheta"
 description   = "A sinatra-like web framework for Nim."
 license       = "MIT"
@@ -10,7 +10,7 @@ skipDirs = @["tests"]
 
 # Deps
 
-requires "nim >= 0.18.1"
+requires "nim >= 1.0.0"
 
 when not defined(windows):
   requires "httpbeast >= 0.2.2"

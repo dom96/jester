@@ -1,8 +1,15 @@
 # Jester changelog
 
-## x.x.x - xx/xx/xxxx
+## 0.5.0 - 17/10/2020
+
+Major new release mainly due to some breaking changes.
+This release brings compatibility with Nim 1.4.0 as well.
 
 - **Breaking change:** By default `redirect` now skips future handlers, including when used in a `before` route.  To retain the old behavior, set the parameter `halt=false` (e.g. `redirect("/somewhere", halt=false)`)
+
+For full list, see the commits since the last version:
+
+https://github.com/dom96/jester/compare/v0.4.3...v0.5.0
 
 ## 0.4.3 - 12/08/2019
 
