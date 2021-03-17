@@ -1,5 +1,9 @@
 # Jester changelog
 
+## x.x.x
+
+Fix a bug that prevented redirecting from within error handlers ([#269]([#269](https://github.com/dom96/jester/issues/269)))
+
 ## 0.4.3 - 12/08/2019
 
 Minor release correcting a few packaging issues and includes some other
