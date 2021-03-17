@@ -1351,29 +1351,27 @@ proc routesEx(name: string, body: NimNode): NimNode =
   # Error handler proc
   let errorHandlerIdent = newIdentNode(name & "ErrorHandler")
   let errorIdent = newIdentNode("error")
-  let exceptionIdent = newIdentNode("exception")
-  let resultIdent = newIdentNode("result")
+  let allRoutesIdent = ident("allRoutes")
+  var exceptionStmts = newStmtList()
+  if exceptionBranches.len != 0:
+    for branch in exceptionBranches:
+      exceptionStmts.add(newIfStmt(branch))
+  var codeStmts = newStmtList()
+  if httpCodeBranches.len != 0:
+    for branch in httpCodeBranches:
+      codeStmts.add(newIfStmt(branch))
   var errorHandlerProc = quote do:
     proc `errorHandlerIdent`(
       `reqIdent`: Request, `errorIdent`: RouteError
     ): Future[ResponseData] {.gcsafe, async.} =
-      block `routesListIdent`:
-        `setDefaultRespIdent`()
-        case `errorIdent`.kind
-        of RouteException:
-          discard
-        of RouteCode:
-          discard
-  if exceptionBranches.len != 0:
-    var stmts = newStmtList()
-    for branch in exceptionBranches:
-      stmts.add(newIfStmt(branch))
-    errorHandlerProc[6][0][1][^1][1][1][0] = stmts
-  if httpCodeBranches.len != 0:
-    var stmts = newStmtList()
-    for branch in httpCodeBranches:
-      stmts.add(newIfStmt(branch))
-    errorHandlerProc[6][0][1][^1][2][1][0] = stmts
+      block `allRoutesIdent`:
+        block `routesListIdent`:
+          `setDefaultRespIdent`()
+          case `errorIdent`.kind
+          of RouteException:
+            `exceptionStmts`
+          of RouteCode:
+            `codeStmts`
   result.add(errorHandlerProc)
 
   # Pair the matcher and error matcher

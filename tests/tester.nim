@@ -264,6 +264,12 @@ proc customRouterTest(useStdLib: bool) =
       let body = (waitFor resp.body)
       checkpoint body
       check body.startsWith("Something bad happened: Foobar")
+    
+    test "redirect in error":
+      let resp = waitFor client.get(address & "/definitely404route")
+      check resp.code == Http303
+      check resp.headers["location"] == address & "/404"
+      check (waitFor resp.body) == ""
 
 when isMainModule:
   try:
