@@ -16,5 +16,5 @@ when not defined(windows):
   requires "httpbeast >= 0.4.0"
 
 task test, "Runs the test suite.":
-  exec "nimble install asynctools#0e6bdc3ed5bae8c7cc9"
+  exec "nimble install -y asynctools@#0e6bdc3ed5bae8c7cc9"
   exec "nim c -r tests/tester"
