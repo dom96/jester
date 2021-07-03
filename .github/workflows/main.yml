@@ -12,8 +12,8 @@ jobs:
     strategy:
       matrix:
         nimversion:
-        - stable
-        - devel
+        - 1.4.8
+        - git:6b97889f44d06f66
         os:
         - ubuntu-latest
         - macOS-latest
