@@ -94,7 +94,7 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/halt")
     check resp.status.startsWith("502")
     check (waitFor resp.body) == "I'm sorry, this page has been halted."
-  
+
   test "/halt-before":
     let resp = waitFor client.request(address & "/foo/halt-before/something", HttpGet)
     let body = waitFor resp.body
@@ -109,12 +109,12 @@ proc allTest(useStdLib: bool) =
   test "/redirect":
     let resp = waitFor client.request(address & "/foo/redirect/halt", HttpGet)
     check resp.headers["location"] == "http://localhost:5454/foo/halt"
-  
+
   test "/redirect-halt":
     let resp = waitFor client.request(address & "/foo/redirect-halt/halt", HttpGet)
     check resp.headers["location"] == "http://localhost:5454/foo/halt"
     check (waitFor resp.body) == ""
-  
+
   test "/redirect-before":
     let resp = waitFor client.request(address & "/foo/redirect-before/anywhere", HttpGet)
     check resp.headers["location"] == "http://localhost:5454/foo/nowhere"
@@ -154,13 +154,15 @@ proc allTest(useStdLib: bool) =
   suite "static":
     test "index.html":
       let resp = waitFor client.get(address & "/foo/root")
-      check (waitFor resp.body) == "This should be available at /root/.\n"
+      let body = waitFor resp.body
+      check body.startsWith("This should be available at /root/.")
 
     test "test_file.txt":
       let resp = waitFor client.get(address & "/foo/root/test_file.txt")
       check (waitFor resp.body) == "Hello World!"
 
     test "detects attempts to read parent dirs":
+      # curl -v --path-as-is http://127.0.0.1:5454/foo/../public2/should_be_inaccessible
       let resp = waitFor client.get(address & "/foo/root/../../tester.nim")
       check resp.code == Http400
       let resp2 = waitFor client.get(address & "/foo/root/..%2f../tester.nim")

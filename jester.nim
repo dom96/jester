@@ -314,8 +314,9 @@ proc handleFileRequest(
 
   # Verify that this isn't outside our static dir.
   var status = Http400
-  let pathDir = path.splitFile.dir / ""
-  let staticDir = jes.settings.staticDir / ""
+  let pathDir = path.splitFile.dir & (if path.splitFile.dir[^1] == DirSep: "" else: $DirSep)
+  let staticDir = jes.settings.staticDir & (if jes.settings.staticDir[^1] == DirSep: "" else: $DirSep)
+  echo(pathDir, " ", staticDir)
   if pathDir.startsWith(staticDir):
     if existsDir(path):
       status = await sendStaticIfExists(
