@@ -4,6 +4,7 @@ import jester
 
 settings:
   port = Port(5454)
+  bindAddr = "127.0.0.1"
 
 routes:
   get "/":
