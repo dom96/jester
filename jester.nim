@@ -477,6 +477,8 @@ proc serve*(
     addHandler(logging.newConsoleLogger())
     setLogFilter(when defined(release): lvlInfo else: lvlDebug)
 
+  assert self.settings.staticDir.len > 0, "Static dir cannot be an empty string."
+
   if self.settings.bindAddr.len > 0:
     logging.info("Jester is making jokes at http://$1:$2$3" %
       [
