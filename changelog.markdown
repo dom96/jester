@@ -1,5 +1,9 @@
 # Jester changelog
 
+## 0.6.0 - ??/07/2021
+
+- **Breaking change:** the `@` operator used for retrieving request parameters now automatically decodes special characters using `decodeUrl`.
+
 ## 0.5.0 - 17/10/2020
 
 Major new release mainly due to some breaking changes.
