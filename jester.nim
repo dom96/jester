@@ -499,7 +499,7 @@ proc serve*(
       proc (req: httpbeast.Request): Future[void] =
          {.gcsafe.}:
           result = handleRequest(jes, req),
-      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, reusePort = true, failOnExistingPort = not self.settings.reusePort)
+      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, failOnExistingPort = not self.settings.reusePort)
     )
   else:
     self.httpServer = newAsyncHttpServer(reusePort = self.settings.reusePort)
