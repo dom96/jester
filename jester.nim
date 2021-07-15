@@ -74,7 +74,7 @@ type
     of RouteCode:
       data: ResponseData
 
-const jesterVer = "0.5.0"
+const jesterVer = "0.5.1"
 
 proc toStr(headers: Option[RawHeaders]): string =
   return $newHttpHeaders(headers.get(@({:})))
@@ -499,10 +499,10 @@ proc serve*(
       proc (req: httpbeast.Request): Future[void] =
          {.gcsafe.}:
           result = handleRequest(jes, req),
-      httpbeast.initSettings(self.settings.port, self.settings.bindAddr)
+      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, failOnExistingPort = not self.settings.reusePort)
     )
   else:
-    self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort)
+    self.httpServer = newAsyncHttpServer(reusePort = self.settings.reusePort)
     let serveFut = self.httpServer.serve(
       self.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
