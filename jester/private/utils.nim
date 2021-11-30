@@ -17,8 +17,7 @@ type
     bindAddr*: string
     reusePort*: bool
     futureErrorHandler*: proc (fut: Future[void]) {.closure, gcsafe.}
-    when useHttpBeast:
-      numThreads*: int
+    numThreads*: int # Only available with Httpbeast (`useHttpBeast = true`)
 
   JesterError* = object of Exception
 
