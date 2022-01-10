@@ -61,7 +61,7 @@ proc query*(req: Request): string =
     let p = req.req.path.get("")
     let queryStart = p.find('?')
     if likely(queryStart != -1):
-      return p[queryStart .. ^1]
+      return p[queryStart + 1 .. ^1]
     else:
       return ""
   else:
