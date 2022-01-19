@@ -146,6 +146,10 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/query?q=test")
     check (waitFor resp.body) == """{"q": "test"}"""
 
+  test "can access querystring":
+    let resp = waitFor client.get(address & "/foo/querystring?q=test&field=5")
+    check (waitFor resp.body) == "q=test&field=5"
+
   test "issue 157":
     let resp = waitFor client.get(address & "/foo/issue157")
     let headers = resp.headers
