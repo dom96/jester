@@ -514,7 +514,7 @@ proc serve*(
       asyncCheck serveFut
     runForever()
 
-template setHeader(headers: var ResponseHeaders, key, value: string): typed =
+template setHeader*(headers: var ResponseHeaders, key, value: string): typed =
   bind isNone
   if isNone(headers):
     headers = some(@({key: value}))
