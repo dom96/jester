@@ -82,7 +82,7 @@ type
     of RouteCode:
       data: ResponseData
 
-const jesterVer = "0.4.3"
+const jesterVer = "0.5.0"
 
 proc toStr(headers: Option[RawHeaders]): string =
   return $newHttpHeaders(headers.get(@({:})))
@@ -323,8 +323,8 @@ proc handleFileRequest(
 
   # Verify that this isn't outside our static dir.
   var status = Http400
-  let pathDir = path.splitFile.dir / ""
-  let staticDir = jes.settings.staticDir / ""
+  let pathDir = path.splitFile.dir & (if path.splitFile.dir[^1] == DirSep: "" else: $DirSep)
+  let staticDir = jes.settings.staticDir & (if jes.settings.staticDir[^1] == DirSep: "" else: $DirSep)
   if pathDir.startsWith(staticDir):
     if existsDir(path):
       status = await sendStaticIfExists(
@@ -487,6 +487,8 @@ proc serve*(
     addHandler(logging.newConsoleLogger())
     setLogFilter(when defined(release): lvlInfo else: lvlDebug)
 
+  assert self.settings.staticDir.len > 0, "Static dir cannot be an empty string."
+
   if self.settings.bindAddr.len > 0:
     logging.info("Jester is making jokes at http://$1:$2$3" %
       [
@@ -507,7 +509,7 @@ proc serve*(
       proc (req: httpbeast.Request): Future[void] =
          {.gcsafe.}:
           result = handleRequest(jes, req),
-      httpbeast.initSettings(self.settings.port, self.settings.bindAddr)
+      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, self.settings.numThreads)
     )
   else:
     self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort)
@@ -522,7 +524,9 @@ proc serve*(
       asyncCheck serveFut
     runForever()
 
-template setHeader(headers: var ResponseHeaders, key, value: string): typed =
+template setHeader*(headers: var ResponseHeaders, key, value: string): typed =
+  ## Sets a response header using the given key and value. 
+  ## Overwrites if the header key already exists.
   bind isNone
   if isNone(headers):
     headers = some(@({key: value}))
@@ -590,7 +594,9 @@ template resp*(code: HttpCode): typed =
 
 template redirect*(url: string, halt = true): typed =
   ## Redirects to ``url``. Returns from this request handler immediately.
+  ##
   ## If ``halt`` is true, skips executing future handlers, too.
+  ##
   ## Any set response headers are preserved for this request.
   bind TCActionSend, newHttpHeaders
   result[0] = TCActionSend
@@ -675,7 +681,7 @@ template `@`*(s: string): untyped =
     # TODO: Why does request.params not work? :(
     # TODO: This is some weird bug with macros/templates, I couldn't
     # TODO: reproduce it easily.
-    params(request)[s]
+    decodeUrl(params(request)[s])
   else:
     ""
 

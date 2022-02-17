@@ -86,7 +86,7 @@ Jester supports conditions, however they are limited to a simple ``cond`` templa
 ```nim
 routes:
   get "/@name":
-    cond @"name" != "daniel"
+    cond @"name" == "daniel"
     # ``cond`` will pass execution to the next matching route if @"name" is not
     # "daniel".
     resp "Correct, my name is daniel."
@@ -167,6 +167,7 @@ Request* = ref object
   pathInfo*: string             ## This is ``.path`` without ``.appName``.
   secure*: bool
   path*: string                 ## Path of request.
+  query*: string                ## Query string of request.
   cookies*: StringTableRef      ## Cookies from the browser.
   ip*: string                   ## IP address of the requesting client.
   reqMeth*: TReqMeth            ## Request method, eg. HttpGet, HttpPost

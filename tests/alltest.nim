@@ -52,6 +52,12 @@ routes:
   get "/halt-before/@something":
     resp "Should never reach this"
 
+  before re"/halt-before/.*?":
+    halt Http502, "Halted!"
+
+  get "/halt-before/@something":
+    resp "Should never reach this"
+
   get "/guess/@who":
     if @"who" != "Frank": pass()
     resp "You've found me!"
@@ -69,6 +75,16 @@ routes:
   before re"/redirect-before/.*?":
     redirect(uri("/nowhere"))
   
+  get "/redirect-before/@url/?":
+    resp "should not get here"
+
+  get "/redirect-halt/@url/?":
+    redirect(uri(@"url"))
+    resp "ok"
+
+  before re"/redirect-before/.*?":
+    redirect(uri("/nowhere"))
+
   get "/redirect-before/@url/?":
     resp "should not get here"
 
@@ -217,6 +233,9 @@ routes:
 
   get "/query":
     resp $request.params
+
+  get "/querystring":
+    resp $request.query
 
   get "/issue157":
     resp(Http200, [("Content-Type","text/css")] , "foo")

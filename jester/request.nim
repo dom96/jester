@@ -55,6 +55,19 @@ proc path*(req: Request): string =
     let u = req.req.url
     return u.path
 
+proc query*(req: Request): string =
+  ## Query string of request
+  when useHttpBeast:
+    let p = req.req.path.get("")
+    let queryStart = p.find('?')
+    if likely(queryStart != -1):
+      return p[queryStart + 1 .. ^1]
+    else:
+      return ""
+  else:
+    let u = req.req.url
+    return u.query
+
 proc reqMethod*(req: Request): HttpMethod =
   ## Request method, eg. HttpGet, HttpPost
   when useHttpBeast:

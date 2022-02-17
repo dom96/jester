@@ -17,6 +17,7 @@ type
     bindAddr*: string
     reusePort*: bool
     futureErrorHandler*: proc (fut: Future[void]) {.closure, gcsafe.}
+    numThreads*: int # Only available with Httpbeast (`useHttpBeast = true`)
 
   JesterError* = object of Exception
 
@@ -140,8 +141,7 @@ proc makeCookie*(key, value, expires: string, domain = "", path = "",
   if expires != "": result.add("; Expires=" & expires)
   if secure: result.add("; Secure")
   if httpOnly: result.add("; HttpOnly")
-  if sameSite != None:
-    result.add("; SameSite=" & $sameSite)
+  result.add("; SameSite=" & $sameSite)
 
 when not declared(tables.getOrDefault):
   template getOrDefault*(tab, key): untyped = tab[key]
