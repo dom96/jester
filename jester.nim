@@ -98,6 +98,10 @@ proc unsafeSend(request: Request, content: string) =
     # TODO: This may cause issues if we send too fast.
     asyncCheck request.getNativeReq.client.send(content)
 
+proc newCompletedFuture(): Future[void] =
+  result = newFuture[void]()
+  complete(result)
+
 proc send(
   request: Request, code: HttpCode, headers: Option[RawHeaders], body: string
 ): Future[void] =
@@ -106,9 +110,7 @@ proc send(
       if headers.isNone: ""
       else: headers.get().createHeaders
     request.getNativeReq.send(code, body, h)
-    var fut = newFuture[void]()
-    complete(fut)
-    return fut
+    return newCompletedFuture()
   else:
     return request.getNativeReq.respond(
       code, body, newHttpHeaders(headers.get(@({:})))
@@ -121,6 +123,7 @@ proc statusContent(request: Request, status: HttpCode, content: string,
     when not defined(release):
       logging.debug("  $1 $2" % [$status, toStr(headers)])
   except:
+    result = newCompletedFuture()
     logging.error("Could not send response: $1" % osErrorMsg(osLastError()))
 
 # TODO: Add support for proper Future Streams instead of this weird raw mode.
@@ -515,7 +518,7 @@ proc serve*(
     runForever()
 
 template setHeader*(headers: var ResponseHeaders, key, value: string): typed =
-  ## Sets a response header using the given key and value. 
+  ## Sets a response header using the given key and value.
   ## Overwrites if the header key already exists.
   bind isNone
   if isNone(headers):
