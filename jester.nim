@@ -477,6 +477,13 @@ proc initJester*(
   result.register(pair.matcher)
   result.register(pair.errorHandler)
 
+proc initJester*(
+  matcher: MatchProc,
+  settings: Settings = newSettings()
+): Jester =
+  result = initJester(settings)
+  result.register(matcher)
+
 proc serve*(
   self: var Jester
 ) =
