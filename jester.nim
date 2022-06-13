@@ -484,6 +484,13 @@ proc initJester*(
   result = initJester(settings)
   result.register(matcher)
 
+proc initJester*(
+  matcher: MatchProcSync,
+  settings: Settings = newSettings()
+): Jester =
+  result = initJester(settings)
+  result.register(matcher)
+
 proc serve*(
   self: var Jester
 ) =
