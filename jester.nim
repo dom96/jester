@@ -42,6 +42,14 @@ type
     request: Request, error: RouteError
   ): Future[ResponseData] {.gcsafe, closure.}
 
+  MatchPair* = tuple
+    matcher: MatchProc
+    errorHandler: ErrorProc
+
+  MatchPairSync* = tuple
+    matcher: MatchProcSync
+    errorHandler: ErrorProc
+
   Jester* = object
     when not useHttpBeast:
       httpServer*: AsyncHttpServer
@@ -454,6 +462,22 @@ proc initJester*(
   result.errorHandlers = @[]
 
 proc initJester*(
+  pair: MatchPair,
+  settings: Settings = newSettings()
+): Jester =
+  result = initJester(settings)
+  result.register(pair.matcher)
+  result.register(pair.errorHandler)
+
+proc initJester*(
+  pair: MatchPairSync, # TODO: Annoying nim bug: `MatchPair | MatchPairSync` doesn't work.
+  settings: Settings = newSettings()
+): Jester =
+  result = initJester(settings)
+  result.register(pair.matcher)
+  result.register(pair.errorHandler)
+
+proc initJester*(
   matcher: MatchProc,
   settings: Settings = newSettings()
 ): Jester =
@@ -461,7 +485,7 @@ proc initJester*(
   result.register(matcher)
 
 proc initJester*(
-  matcher: MatchProcSync, # TODO: Annoying nim bug: `MatchProc | MatchProcSync` doesn't work.
+  matcher: MatchProcSync,
   settings: Settings = newSettings()
 ): Jester =
   result = initJester(settings)
@@ -1306,7 +1330,7 @@ proc routesEx(name: string, body: NimNode): NimNode =
         `afterRoutes`
   )
 
-  let matchIdent = newIdentNode(name)
+  let matchIdent = newIdentNode(name & "Matcher")
   let reqIdent = newIdentNode("request")
   let needsAsync = needsAsync(body)
   case needsAsync
@@ -1341,30 +1365,48 @@ proc routesEx(name: string, body: NimNode): NimNode =
   # Error handler proc
   let errorHandlerIdent = newIdentNode(name & "ErrorHandler")
   let errorIdent = newIdentNode("error")
-  let exceptionIdent = newIdentNode("exception")
-  let resultIdent = newIdentNode("result")
+  let allRoutesIdent = ident("allRoutes")
+  var exceptionStmts = newStmtList()
+  if exceptionBranches.len != 0:
+    for branch in exceptionBranches:
+      exceptionStmts.add(newIfStmt(branch))
+  var codeStmts = newStmtList()
+  if httpCodeBranches.len != 0:
+    for branch in httpCodeBranches:
+      codeStmts.add(newIfStmt(branch))
   var errorHandlerProc = quote do:
     proc `errorHandlerIdent`(
       `reqIdent`: Request, `errorIdent`: RouteError
     ): Future[ResponseData] {.gcsafe, async.} =
-      block `routesListIdent`:
-        `setDefaultRespIdent`()
-        case `errorIdent`.kind
-        of RouteException:
-          discard
-        of RouteCode:
-          discard
-  if exceptionBranches.len != 0:
-    var stmts = newStmtList()
-    for branch in exceptionBranches:
-      stmts.add(newIfStmt(branch))
-    errorHandlerProc[6][0][1][^1][1][1][0] = stmts
-  if httpCodeBranches.len != 0:
-    var stmts = newStmtList()
-    for branch in httpCodeBranches:
-      stmts.add(newIfStmt(branch))
-    errorHandlerProc[6][0][1][^1][2][1][0] = stmts
+      block `allRoutesIdent`:
+        block `routesListIdent`:
+          `setDefaultRespIdent`()
+          case `errorIdent`.kind
+          of RouteException:
+            `exceptionStmts`
+          of RouteCode:
+            `codeStmts`
   result.add(errorHandlerProc)
+
+  # Pair the matcher and error matcher
+  let pairIdent = newIdentNode(name)
+  let matchProcVarIdent = newIdentNode(name & "MatchProc")
+  let errorProcVarIdent = newIdentNode(name & "ErrorProc")
+  if needsAsync in {ImplicitTrue, ExplicitTrue}:
+    # TODO: I don't understand why I have to assign these procs to intermediate
+    # variables in order to get them into the tuple.  It would be nice if it could
+    # just be:
+    #   let `pairIdent`: MatchPair = (`matchIdent`, `errorHandlerIdent`)
+    result.add quote do:
+      let `matchProcVarIdent`: MatchProc = `matchIdent`
+      let `errorProcVarIdent`: ErrorProc = `errorHandlerIdent`
+      let `pairIdent`: MatchPair = (`matchProcVarIdent`, `errorProcVarIdent`)
+  else:
+    result.add quote do:
+      let `matchProcVarIdent`: MatchProcSync = `matchIdent`
+      let `errorProcVarIdent`: ErrorProc = `errorHandlerIdent`
+      let `pairIdent`: MatchPairSync = (`matchProcVarIdent`, `errorProcVarIdent`)
+  
 
   # TODO: Replace `body`, `headers`, `code` in routes with `result[i]` to
   # get these shortcuts back without sacrificing usability.
@@ -1376,13 +1418,11 @@ proc routesEx(name: string, body: NimNode): NimNode =
 macro routes*(body: untyped) =
   result = routesEx("match", body)
   let jesIdent = genSym(nskVar, "jes")
-  let matchIdent = newIdentNode("match")
-  let errorHandlerIdent = newIdentNode("matchErrorHandler")
+  let pairIdent = newIdentNode("match")
   let settingsIdent = newIdentNode("settings")
   result.add(
     quote do:
-      var `jesIdent` = initJester(`matchIdent`, `settingsIdent`)
-      `jesIdent`.register(`errorHandlerIdent`)
+      var `jesIdent` = initJester(`pairIdent`, `settingsIdent`)
   )
   result.add(
     quote do:
