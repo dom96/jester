@@ -23,19 +23,12 @@ type
 
 proc parseUrlQuery*(query: string, result: var Table[string, string])
     {.deprecated: "use stdlib cgi/decodeData".} =
-  var i = 0
-  i = query.skip("?")
-  while i < query.len()-1:
-    var key = ""
-    var val = ""
-    i += query.parseUntil(key, '=', i)
-    if query[i] != '=':
-      raise newException(ValueError, "Expected '=' at " & $i &
-                         " but got: " & $query[i])
-    inc(i) # Skip =
-    i += query.parseUntil(val, '&', i)
-    inc(i) # Skip &
-    result[decodeUrl(key)] = decodeUrl(val)
+  for row in query.split("&"):
+    if not row.contains("="):
+      result[decodeUrl(row)] = ""
+    else:
+      let rowArr = row.split("=")
+      result[decodeUrl(rowArr[0])] = decodeUrl(rowArr[1])
 
 template parseContentDisposition(): typed =
   var hCount = 0
