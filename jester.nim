@@ -14,6 +14,7 @@ export request
 export strtabs
 export tables
 export httpcore
+export options
 export MultiData
 export HttpMethod
 export asyncdispatch
@@ -565,7 +566,7 @@ template resp*(code: HttpCode,
                content: string): typed =
   ## Sets ``(code, headers, content)`` as the response.
   bind TCActionSend
-  result = (TCActionSend, code, none[RawHeaders](), content, true)
+  result = (TCActionSend, code, result[2], content, true)
   for header in headers:
     setHeader(result[2], header[0], header[1])
   break route
@@ -752,6 +753,8 @@ template uri*(address = "", absolute = true, addScriptName = true): untyped =
 
 template responseHeaders*(): var ResponseHeaders =
   ## Access the Option[RawHeaders] response headers
+  if result[2].isNone:
+    result[2] = some[RawHeaders](@[])
   result[2]
 
 proc daysForward*(days: int): DateTime =
