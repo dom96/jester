@@ -223,3 +223,8 @@ routes:
 
   get "/issue157":
     resp(Http200, [("Content-Type","text/css")] , "foo")
+  
+  get "/manyheaders":
+    setHeader(responseHeaders, "foo", "foo")
+    setHeader(responseHeaders, "bar", "bar")
+    resp Http200, {"Content-Type": "text/plain"}, "result"
