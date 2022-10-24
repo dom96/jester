@@ -859,6 +859,7 @@ template setDefaultResp*() =
   result.content = ""
 
 template declareSettings() {.dirty.} =
+  bind newSettings
   when not declaredInScope(settings):
     var settings = newSettings()
 
