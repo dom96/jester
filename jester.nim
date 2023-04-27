@@ -420,7 +420,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
 
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
-  appName = "", bindAddr = "", reusePort = false,
+  appName = "", bindAddr = "", reusePort = false, maxBody = 8388608,
   futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
 ): Settings =
   result = Settings(
@@ -429,6 +429,7 @@ proc newSettings*(
     port: port,
     bindAddr: bindAddr,
     reusePort: reusePort,
+    maxBody: maxBody,
     futureErrorHandler: futureErrorHandler
   )
 
@@ -530,7 +531,7 @@ proc serve*(
       httpbeast.initSettings(self.settings.port, self.settings.bindAddr, self.settings.numThreads)
     )
   else:
-    self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort)
+    self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort, maxBody=self.settings.maxBody)
     let serveFut = self.httpServer.serve(
       self.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
