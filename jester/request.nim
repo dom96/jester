@@ -105,7 +105,7 @@ proc params*(req: Request): Table[string, string] =
 
   try:
     for key, val in cgi.decodeData(query):
-      result[key] = val
+      result[key] = decodeUrl(val)
   except CgiError:
     logging.warn("Incorrect query. Got: $1" % [query])
 
