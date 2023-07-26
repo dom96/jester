@@ -420,7 +420,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
 
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
-  appName = "", bindAddr = "", reusePort = false, maxBody = 8388608,
+  appName = "", bindAddr = "", reusePort = false, maxBody = 8388608, numThreads = 0,
   futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
 ): Settings =
   result = Settings(
@@ -430,6 +430,7 @@ proc newSettings*(
     bindAddr: bindAddr,
     reusePort: reusePort,
     maxBody: maxBody,
+    numThreads: numThreads,
     futureErrorHandler: futureErrorHandler
   )
 
