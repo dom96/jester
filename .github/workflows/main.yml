@@ -13,7 +13,7 @@ jobs:
       matrix:
         nimversion:
         - 1.4.8
-        - git:6b97889f44d06f66
+        - 1.6.0
         os:
         - ubuntu-latest
         - macOS-latest
