@@ -16,5 +16,7 @@ when not defined(windows):
   requires "httpbeast >= 0.4.0"
 
 task test, "Runs the test suite.":
+  when NimMajor < 2:
+    exec "git submodule update --init"
   exec "nimble install -y asynctools@#0e6bdc3ed5bae8c7cc9"
   exec "nim c -r tests/tester"
