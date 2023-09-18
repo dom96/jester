@@ -30,4 +30,7 @@ jobs:
         version: ${{ matrix.nimversion }}
     - name: Test
       run: |
+        nimble --version
+        nimble refresh -y
+        nimble setup
         nimble test
