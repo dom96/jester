@@ -3,3 +3,6 @@
 !/tests/*/
 
 nimcache
+
+.idea/
+*.iml
