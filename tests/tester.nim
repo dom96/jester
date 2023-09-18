@@ -154,7 +154,7 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/issue157")
     let headers = resp.headers
     check headers["Content-Type"] == "text/css"
-  
+
   test "resp doesn't overwrite headers":
     let resp = waitFor client.get(address & "/foo/manyheaders")
     let headers = resp.headers
