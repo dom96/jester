@@ -31,4 +31,3 @@ jobs:
     - name: Test
       run: |
         nimble test
-        nimble refresh
