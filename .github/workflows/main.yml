@@ -27,7 +27,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        nimversion: ${{ matrix.nimversion }}
+        version: ${{ matrix.nimversion }}
     - name: Test
       run: |
         nimble test
