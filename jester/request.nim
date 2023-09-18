@@ -94,28 +94,27 @@ proc ip*(req: Request): string =
 
 proc params*(req: Request): Table[string, string] =
   ## Parameters from the pattern and the query string.
+  ##
+  ## Note that this doesn't allow for duplicated keys (it simply returns the last occuring value)
+  ## Use `paramValuesAsSeq` if you need multiple values for a key
   if req.patternParams.isSome():
     result = req.patternParams.get()
   else:
     result = initTable[string, string]()
 
-  when useHttpBeast:
-    let query = req.req.path.get("").parseUri().query
-  else:
-    let query = req.req.url.query
-
-  try:
-    for key, val in cgi.decodeData(query):
-      result[key] = decodeUrl(val)
-  except CgiError:
-    logging.warn("Incorrect query. Got: $1" % [query])
+  var queriesToDecode: seq[string] = @[]
+  queriesToDecode.add query(req)
 
   let contentType = req.headers.getOrDefault("Content-Type")
   if contentType.startswith("application/x-www-form-urlencoded"):
+    queriesToDecode.add req.body
+
+  for query in queriesToDecode:
     try:
-      parseUrlQuery(req.body, result)
-    except:
-      logging.warn("Could not parse URL query.")
+      for key, val in cgi.decodeData(query):
+        result[key] = decodeUrl(val)
+    except CgiError:
+      logging.warn("Incorrect query. Got: $1" % [query])
 
 proc paramValuesAsSeq*(req: Request): Table[string, seq[string]] =
   ## Parameters from the pattern and the query string.
