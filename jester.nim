@@ -612,7 +612,7 @@ template resp*(code: HttpCode): typed =
   result.matched = true
   break route
 
-template redirect*(url: string, halt = true): typed =
+template redirect*(url: string, halt = true, httpStatusCode = Http303): typed =
   ## Redirects to ``url``. Returns from this request handler immediately.
   ##
   ## If ``halt`` is true, skips executing future handlers, too.
@@ -620,7 +620,7 @@ template redirect*(url: string, halt = true): typed =
   ## Any set response headers are preserved for this request.
   bind TCActionSend, newHttpHeaders
   result[0] = TCActionSend
-  result[1] = Http303
+  result[1] = httpStatusCode
   setHeader(result[2], "Location", url)
   result[3] = ""
   result.matched = true

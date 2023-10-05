@@ -228,3 +228,12 @@ routes:
     setHeader(responseHeaders, "foo", "foo")
     setHeader(responseHeaders, "bar", "bar")
     resp Http200, {"Content-Type": "text/plain"}, "result"
+
+  get "/redirectDefault":
+    redirect("/")
+
+  get "/redirect301":
+    redirect("/", httpStatusCode = Http301)
+
+  get "/redirect302":
+    redirect("/", httpStatusCode = Http302)
