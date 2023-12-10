@@ -22,6 +22,8 @@ Compile and run with:
 
 View at: [localhost:5000](http://localhost:5000)
 
+Before deploying to production ensure you run your application behind a reverse proxy. This library is not yet hardened against HTTP security exploits so applications written in it should not be exposed to the public internet.
+
 ## Routes
 
 ```nim
