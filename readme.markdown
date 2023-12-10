@@ -210,3 +210,9 @@ routes:
     resp "I got some JSON: " & $push
 ```
 
+## Security Concern
+**Caution:** 
+Deploy Jester behind a secure reverse proxy to ensure consistent and secure handling of incoming requests.
+
+>Exposing Jester to the public internet without a reverse proxy exposes it to the risk of HTTP Request Smuggling attacks. This technique can manipulate the interpretation of HTTP requests, potentially leading to unauthorized access or data breaches.
+
