@@ -1,6 +1,6 @@
 import uri, cgi, tables, logging, strutils, re, options
 
-import jester/private/utils
+import private/utils
 
 when useHttpBeast:
   import httpbeast except Settings
