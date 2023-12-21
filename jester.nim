@@ -83,7 +83,13 @@ type
     of RouteCode:
       data: ResponseData
 
+  Startup = proc () {.closure, gcsafe.}
+
 const jesterVer = "0.6.0"
+
+proc doNothing(): Startup {.gcsafe.} =
+  result = proc () {.closure, gcsafe.} =
+    discard
 
 proc toStr(headers: Option[RawHeaders]): string =
   return $newHttpHeaders(headers.get(@({:})))
@@ -421,7 +427,8 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
   appName = "", bindAddr = "", reusePort = false, maxBody = 8388608, numThreads = 0,
-  futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
+  futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil,
+  startup: Startup = doNothing()
 ): Settings =
   result = Settings(
     staticDir: normalizedPath(staticDir),
@@ -431,7 +438,8 @@ proc newSettings*(
     reusePort: reusePort,
     maxBody: maxBody,
     numThreads: numThreads,
-    futureErrorHandler: futureErrorHandler
+    futureErrorHandler: futureErrorHandler,
+    startup: startup
   )
 
 proc register*(self: var Jester, matcher: MatchProc) =
@@ -529,7 +537,7 @@ proc serve*(
       proc (req: httpbeast.Request): Future[void] =
          {.gcsafe.}:
           result = handleRequest(jes, req),
-      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, self.settings.numThreads)
+      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, self.settings.numThreads, startup = self.settings.startup)
     )
   else:
     self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort, maxBody=self.settings.maxBody)
