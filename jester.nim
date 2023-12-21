@@ -546,6 +546,7 @@ proc serve*(
 
 template setHeader*(headers: var ResponseHeaders, key, value: string): typed =
   ## Sets a response header using the given key and value.
+  ##
   ## Overwrites if the header key already exists.
   bind isNone
   if isNone(headers):
@@ -563,6 +564,17 @@ template setHeader*(headers: var ResponseHeaders, key, value: string): typed =
       # Add key if it doesn't exist.
       headers = some(h & @({key: value}))
 
+template addHeader*(headers: var ResponseHeaders, key, value: string): typed =
+  ## Adds a response header using the given key and value.
+  ##
+  ## If a header of the same `key` already exists then it is kept,
+  ## the specified value is added and the original isn't overwritten.
+  bind isNone
+  if isNone(headers):
+    headers = some(@({key: value}))
+  else:
+    headers = some(h & @({key: value}))
+
 template resp*(code: HttpCode,
                headers: openarray[tuple[key, val: string]],
                content: string): typed =
@@ -570,7 +582,7 @@ template resp*(code: HttpCode,
   bind TCActionSend
   result = (TCActionSend, code, result[2], content, true)
   for header in headers:
-    setHeader(result[2], header[0], header[1])
+    addHeader(result[2], header[0], header[1])
   break route
 
 
@@ -1412,7 +1424,7 @@ proc routesEx(name: string, body: NimNode): NimNode =
       let `matchProcVarIdent`: MatchProcSync = `matchIdent`
       let `errorProcVarIdent`: ErrorProc = `errorHandlerIdent`
       let `pairIdent`: MatchPairSync = (`matchProcVarIdent`, `errorProcVarIdent`)
-  
+
 
   # TODO: Replace `body`, `headers`, `code` in routes with `result[i]` to
   # get these shortcuts back without sacrificing usability.

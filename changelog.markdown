@@ -5,6 +5,7 @@
 - **Breaking change:** All request parameters are automatically decoded using `decodeUrl`. Accessing the parameters with the `@` operator or directly through the raw `request.params` returns the value decoded.
 - Fix for [#211](https://github.com/dom96/jester/issues/211) - custom routers now have the same error handling as normal routes.
 - Fix for [#269](https://github.com/dom96/jester/issues/269) - a bug that prevented redirecting from within error handlers.
+- The `resp` (taking a HTTP code, headers and content) now correctly handles headers with duplicate keys.
 
 For full list, see the commits since the last version:
 
