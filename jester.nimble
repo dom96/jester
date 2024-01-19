@@ -10,7 +10,7 @@ skipDirs = @["tests"]
 
 # Deps
 
-requires "nim >= 1.0.0"
+requires "nim >= 1.4.8"
 
 when not defined(windows):
   when NimMajor >= 2:
