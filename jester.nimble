@@ -21,6 +21,6 @@ when not defined(windows):
 task test, "Runs the test suite.":
   when NimMajor >= 2:
     # Due to tests/nim-in-action-code/Chapter7
-    requires "db_connector >= 0.1.0"
+    exec "nimble install -y db_connector@0.1.0"
   exec "nimble install -y asynctools@#0e6bdc3ed5bae8c7cc9"
   exec "nim c -r tests/tester"
