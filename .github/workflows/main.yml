@@ -1,33 +1,28 @@
-name: tests
+name: Main test
+
 on:
   push:
   pull_request:
     branches: [master]
-  schedule:
-    - cron: '0 0 * * 1'
 
 jobs:
   tests:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        nimversion:
+        nim:
         - 1.4.8
-        - 1.6.0
+        - 2.0.2
         os:
         - ubuntu-latest
         - macOS-latest
         - windows-latest
     steps:
-    - uses: actions/checkout@v1
-      with:
-        submodules: true
-    - uses: iffy/install-nim@v4
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        version: ${{ matrix.nimversion }}
-    - name: Test
-      run: |
-        nimble test
-        nimble refresh
+      - uses: actions/checkout@v3
+      - name: Setup nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: ${{ matrix.nim }}
+      - run: |
+          nimble test -Y
+          nimble refresh
