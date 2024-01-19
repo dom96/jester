@@ -1,3 +1,8 @@
+# FORK OF Jester
+
+This repo with jester is updated to work with Nim version 2.0
+
+
 # 🃏 Jester 🃏
 
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly
