@@ -154,7 +154,7 @@ proc allTest(useStdLib: bool) =
     let resp = waitFor client.get(address & "/foo/issue157")
     let headers = resp.headers
     check headers["Content-Type"] == "text/css"
-  
+
   test "resp doesn't overwrite headers":
     let resp = waitFor client.get(address & "/foo/manyheaders")
     let headers = resp.headers
@@ -271,7 +271,7 @@ proc customRouterTest(useStdLib: bool) =
       let body = (waitFor resp.body)
       checkpoint body
       check body.startsWith("Something bad happened: Foobar")
-    
+
     test "redirect in error":
       let resp = waitFor client.get(address & "/definitely404route")
       check resp.code == Http303
@@ -290,6 +290,6 @@ when isMainModule:
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":
       let path = "tests/nim-in-action-code/Chapter7/Tweeter/src/tweeter.nim"
-      check execCmd("nim c --path:. " & path) == QuitSuccess
+      check execCmd("nim c --threads:off --path:. " & path) == QuitSuccess
   finally:
     doAssert execCmd("kill -15 " & $serverProcess.processID()) == QuitSuccess

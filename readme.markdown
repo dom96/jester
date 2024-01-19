@@ -1,3 +1,8 @@
+# FORK OF Jester
+
+This repo with jester is updated to work with Nim version 2.0
+
+
 # 🃏 Jester 🃏
 
 The sinatra-like web framework for Nim. Jester provides a DSL for quickly
@@ -21,6 +26,8 @@ Compile and run with:
 ```
 
 View at: [localhost:5000](http://localhost:5000)
+
+Before deploying to production ensure you run your application behind a reverse proxy. This library is not yet hardened against HTTP security exploits so applications written in it should not be exposed to the public internet.
 
 ## Routes
 
@@ -157,7 +164,7 @@ Request* = ref object
                                 ## instead.
   headers*: StringTableRef      ## Headers received with the request.
                                 ## Retrieving these is case insensitive.
-  formData*: TMultiData         ## Form data; only present for
+  formData*: MultiData          ## Form data; only present for
                                 ## multipart/form-data
   port*: int
   host*: string
@@ -170,8 +177,8 @@ Request* = ref object
   query*: string                ## Query string of request.
   cookies*: StringTableRef      ## Cookies from the browser.
   ip*: string                   ## IP address of the requesting client.
-  reqMeth*: TReqMeth            ## Request method, eg. HttpGet, HttpPost
-  settings*: PSettings
+  reqMeth*: HttpMethod          ## Request method, eg. HttpGet, HttpPost
+  settings*: Settings
 ```
 
 ## Examples
@@ -209,4 +216,3 @@ routes:
     var push = parseJson(@"payload")
     resp "I got some JSON: " & $push
 ```
-

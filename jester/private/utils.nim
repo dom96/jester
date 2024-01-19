@@ -16,6 +16,7 @@ type
     port*: Port
     bindAddr*: string
     reusePort*: bool
+    maxBody*: int
     futureErrorHandler*: proc (fut: Future[void]) {.closure, gcsafe.}
     numThreads*: int # Only available with Httpbeast (`useHttpBeast = true`)
 

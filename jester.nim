@@ -83,7 +83,7 @@ type
     of RouteCode:
       data: ResponseData
 
-const jesterVer = "0.5.0"
+const jesterVer = "0.6.0"
 
 proc toStr(headers: Option[RawHeaders]): string =
   return $newHttpHeaders(headers.get(@({:})))
@@ -420,7 +420,7 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
 
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
-  appName = "", bindAddr = "", reusePort = false,
+  appName = "", bindAddr = "", reusePort = false, maxBody = 8388608, numThreads = 0,
   futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
 ): Settings =
   result = Settings(
@@ -429,6 +429,8 @@ proc newSettings*(
     port: port,
     bindAddr: bindAddr,
     reusePort: reusePort,
+    maxBody: maxBody,
+    numThreads: numThreads,
     futureErrorHandler: futureErrorHandler
   )
 
@@ -539,7 +541,7 @@ proc serve*(
       httpbeast.initSettings(self.settings.port, self.settings.bindAddr, self.settings.numThreads, domain)
     )
   else:
-    self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort)
+    self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort, maxBody=self.settings.maxBody)
     let serveFut = self.httpServer.serve(
       self.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
@@ -708,7 +710,7 @@ template `@`*(s: string): untyped =
     # TODO: Why does request.params not work? :(
     # TODO: This is some weird bug with macros/templates, I couldn't
     # TODO: reproduce it easily.
-    decodeUrl(params(request)[s])
+    params(request)[s]
   else:
     ""
 
