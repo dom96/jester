@@ -1,5 +1,6 @@
 /tests/*
 !/tests/*.nim
 !/tests/*/
+!/tests/nim-in-action-code/
 
 nimcache
