@@ -1,0 +1,2 @@
+--path:"./src"
+--path:"../src"

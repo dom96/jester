@@ -384,11 +384,9 @@ when isMainModule:
     issue247(useStdLib=false)
     issue247(useStdLib=true)
 
-    # nim-in-action Chapter7 is not compatible with nim >= 2.0
-    when NimMajor < 2:
-      # Verify that Nim in Action Tweeter still compiles.
-      test "Nim in Action - Tweeter":
-        let path = "tests/nim-in-action-code/Chapter7/Tweeter/src/tweeter.nim"
-        check execCmd("nim c --path:. " & path) == QuitSuccess
+    # Verify that Nim in Action Tweeter still compiles.
+    test "Nim in Action - Tweeter":
+      let path = "tests/nim-in-action-code/Chapter7/Tweeter/src/tweeter.nim"
+      check execCmd("nim c --threads:off --path:. " & path) == QuitSuccess
   finally:
     doAssert execCmd("kill -15 " & $serverProcess.processID()) == QuitSuccess
