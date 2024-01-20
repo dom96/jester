@@ -1,7 +1,7 @@
 import uri, cgi, tables, logging, strutils, re, options
 from sequtils import map
 
-import jester/private/utils
+import private/utils
 
 when useHttpBeast:
   import httpbeast except Settings
