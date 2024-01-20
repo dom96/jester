@@ -1,5 +1,7 @@
 /tests/*
 !/tests/*.nim
 !/tests/*/
+!/tests/nim-in-action-code/*
+/tests/nim-in-action-code/Chapter7/Tweeter/src/tweeter
 
 nimcache

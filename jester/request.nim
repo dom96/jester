@@ -1,6 +1,7 @@
 import uri, cgi, tables, logging, strutils, re, options
+from sequtils import map
 
-import jester/private/utils
+import private/utils
 
 when useHttpBeast:
   import httpbeast except Settings
@@ -93,28 +94,62 @@ proc ip*(req: Request): string =
 
 proc params*(req: Request): Table[string, string] =
   ## Parameters from the pattern and the query string.
+  ##
+  ## Note that this doesn't allow for duplicated keys (it simply returns the last occuring value)
+  ## Use `paramValuesAsSeq` if you need multiple values for a key
   if req.patternParams.isSome():
     result = req.patternParams.get()
   else:
     result = initTable[string, string]()
 
-  when useHttpBeast:
-    let query = req.req.path.get("").parseUri().query
-  else:
-    let query = req.req.url.query
-
-  try:
-    for key, val in cgi.decodeData(query):
-      result[key] = decodeUrl(val)
-  except CgiError:
-    logging.warn("Incorrect query. Got: $1" % [query])
+  var queriesToDecode: seq[string] = @[]
+  queriesToDecode.add query(req)
 
   let contentType = req.headers.getOrDefault("Content-Type")
   if contentType.startswith("application/x-www-form-urlencoded"):
+    queriesToDecode.add req.body
+
+  for query in queriesToDecode:
     try:
-      parseUrlQuery(req.body, result)
-    except:
-      logging.warn("Could not parse URL query.")
+      for key, val in cgi.decodeData(query):
+        result[key] = decodeUrl(val)
+    except CgiError:
+      logging.warn("Incorrect query. Got: $1" % [query])
+
+proc paramValuesAsSeq*(req: Request): Table[string, seq[string]] =
+  ## Parameters from the pattern and the query string.
+  ##
+  ## This allows for duplicated keys in the query (in contrast to `params`)
+  if req.patternParams.isSome():
+    let patternParams: Table[string, string] = req.patternParams.get()
+    var patternParamsSeq: seq[(string, string)] = @[]
+    for key, val in pairs(patternParams):
+      patternParamsSeq.add (key, val)
+
+    # We are not url-decoding the key/value for the patternParams (matches implementation in `params`
+    result = sequtils.map(patternParamsSeq,
+              proc(entry: (string, string)): (string, seq[string]) =
+                (entry[0], @[entry[1]])
+    ).toTable()
+  else:
+    result = initTable[string, seq[string]]()
+
+  var queriesToDecode: seq[string] = @[]
+  queriesToDecode.add query(req)
+
+  let contentType = req.headers.getOrDefault("Content-Type")
+  if contentType.startswith("application/x-www-form-urlencoded"):
+    queriesToDecode.add req.body
+
+  for query in queriesToDecode:
+    try:
+      for key, value in cgi.decodeData(query):
+        if result.hasKey(key):
+          result[key].add value
+        else:
+          result[key] = @[value]
+    except CgiError:
+      logging.warn("Incorrect query. Got: $1" % [query])
 
 proc formData*(req: Request): MultiData =
   let contentType = req.headers.getOrDefault("Content-Type")

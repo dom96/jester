@@ -279,12 +279,107 @@ proc customRouterTest(useStdLib: bool) =
       let body = (waitFor resp.body)
       checkpoint body
       check body.startsWith("Something bad happened: Foobar")
-    
+
     test "redirect in error":
       let resp = waitFor client.get(address & "/definitely404route")
       check resp.code == Http303
       check resp.headers["location"] == address & "/404"
       check (waitFor resp.body) == ""
+
+proc issue247(useStdLib: bool) =
+  waitFor startServer("issue247.nim", useStdLib)
+  var client = newAsyncHttpClient(maxRedirects = 0)
+
+  suite "issue247 useStdLib=" & $useStdLib:
+    test "duplicate keys in query":
+      let resp = waitFor client.get(address & "/multi?a=1&a=2")
+      check (waitFor resp.body) == "a: 1,2"
+
+    test "no duplicate keys in query":
+      let resp = waitFor client.get(address & "/multi?a=1")
+      check (waitFor resp.body) == "a: 1"
+
+    test "assure that empty values are handled":
+      let resp = waitFor client.get(address & "/multi?a=1&a=")
+      check (waitFor resp.body) == "a: 1,"
+
+    test "assure that fragment is not parsed":
+      let resp = waitFor client.get(address & "/multi?a=1&#a=2")
+      check (waitFor resp.body) == "a: 1"
+
+    test "ensure that values are url decoded per default":
+      let resp = waitFor client.get(address & "/multi?a=1&a=1%232")
+      check (waitFor resp.body) == "a: 1,1#2"
+
+    test "ensure that keys are url decoded per default":
+      let resp = waitFor client.get(address & "/multi?a%23b=1&a%23b=1%232")
+      check (waitFor resp.body) == "a#b: 1,1#2"
+
+    test "test different keys":
+      let resp = waitFor client.get(address & "/multi?a=1&b=2")
+      check (waitFor resp.body) == "b: 2a: 1"
+
+    test "ensure that path params aren't escaped":
+      let resp = waitFor client.get(address & "/hello%23world")
+      check (waitFor resp.body) == "val%23ue: hello%23world"
+
+    test "test path params and query":
+      let resp = waitFor client.get(address & "/hello%23world?a%23+b=1%23+b")
+      check (waitFor resp.body) == "a# b: 1# bval%23ue: hello%23world"
+
+    test "test percent encoded path param and query param (same key)":
+      let resp = waitFor client.get(address & "/hello%23world?val%23ue=1%23+b")
+      check (waitFor resp.body) == "val%23ue: hello%23worldval#ue: 1# b"
+
+    test "test path param, query param and x-www-form-urlencoded":
+      client.headers = newHttpHeaders({"Content-Type": "application/x-www-form-urlencoded"})
+      let resp = waitFor client.post(address & "/hello%23world?val%23ue=1%23+b", "val%23ue=1%23+b&b=2")
+      check (waitFor resp.body) == "val%23ue: hello%23worldb: 2val#ue: 1# b,1# b"
+
+    test "params duplicate keys in query":
+      let resp = waitFor client.get(address & "/params?a=1&a=2")
+      check (waitFor resp.body) == "a: 2"
+
+    test "params no duplicate keys in query":
+      let resp = waitFor client.get(address & "/params?a=1")
+      check (waitFor resp.body) == "a: 1"
+
+    test "params assure that empty values are handled":
+      let resp = waitFor client.get(address & "/params?a=1&a=")
+      check (waitFor resp.body) == "a: "
+
+    test "params assure that fragment is not parsed":
+      let resp = waitFor client.get(address & "/params?a=1&#a=2")
+      check (waitFor resp.body) == "a: 1"
+
+    test "params ensure that values are url decoded per default":
+      let resp = waitFor client.get(address & "/params?a=1&a=1%232")
+      check (waitFor resp.body) == "a: 1#2"
+
+    test "params ensure that keys are url decoded per default":
+      let resp = waitFor client.get(address & "/params?a%23b=1&a%23b=1%232")
+      check (waitFor resp.body) == "a#b: 1#2"
+
+    test "params test different keys":
+      let resp = waitFor client.get(address & "/params?a=1&b=2")
+      check (waitFor resp.body) == "b: 2a: 1"
+
+    test "params ensure that path params aren't escaped":
+      let resp = waitFor client.get(address & "/params/hello%23world")
+      check (waitFor resp.body) == "val%23ue: hello%23world"
+
+    test "params test path params and query":
+      let resp = waitFor client.get(address & "/params/hello%23world?a%23+b=1%23+b")
+      check (waitFor resp.body) == "a# b: 1# bval%23ue: hello%23world"
+
+    test "params test percent encoded path param and query param (same key)":
+      let resp = waitFor client.get(address & "/params/hello%23world?val%23ue=1%23+b")
+      check (waitFor resp.body) == "val#ue: 1# bval%23ue: hello%23world"
+
+    test "params test path param, query param and x-www-form-urlencoded":
+      client.headers = newHttpHeaders({"Content-Type": "application/x-www-form-urlencoded"})
+      let resp = waitFor client.post(address & "/params/hello%23world?val%23ue=1%23+b", "val%23ue=1%23+b&b=2")
+      check (waitFor resp.body) == "b: 2val#ue: 1# bval%23ue: hello%23world"
 
 when isMainModule:
   try:
@@ -294,10 +389,12 @@ when isMainModule:
     issue150(useStdLib=true)
     customRouterTest(useStdLib=false)
     customRouterTest(useStdLib=true)
+    issue247(useStdLib=false)
+    issue247(useStdLib=true)
 
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":
       let path = "tests/nim-in-action-code/Chapter7/Tweeter/src/tweeter.nim"
-      check execCmd("nim c --path:. " & path) == QuitSuccess
+      check execCmd("nim c --threads:off --path:. " & path) == QuitSuccess
   finally:
     doAssert execCmd("kill -15 " & $serverProcess.processID()) == QuitSuccess

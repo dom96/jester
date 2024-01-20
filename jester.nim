@@ -83,7 +83,13 @@ type
     of RouteCode:
       data: ResponseData
 
+  Startup = proc () {.closure, gcsafe.}
+
 const jesterVer = "0.6.0"
+
+proc doNothing(): Startup {.gcsafe.} =
+  result = proc () {.closure, gcsafe.} =
+    discard
 
 proc toStr(headers: Option[RawHeaders]): string =
   return $newHttpHeaders(headers.get(@({:})))
@@ -421,7 +427,8 @@ proc handleRequest(jes: Jester, httpReq: NativeRequest): Future[void] =
 proc newSettings*(
   port = Port(5000), staticDir = getCurrentDir() / "public",
   appName = "", bindAddr = "", reusePort = false, maxBody = 8388608, numThreads = 0,
-  futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil
+  futureErrorHandler: proc (fut: Future[void]) {.closure, gcsafe.} = nil,
+  startup: Startup = doNothing()
 ): Settings =
   result = Settings(
     staticDir: normalizedPath(staticDir),
@@ -431,7 +438,8 @@ proc newSettings*(
     reusePort: reusePort,
     maxBody: maxBody,
     numThreads: numThreads,
-    futureErrorHandler: futureErrorHandler
+    futureErrorHandler: futureErrorHandler,
+    startup: startup
   )
 
 proc register*(self: var Jester, matcher: MatchProc) =
@@ -524,12 +532,21 @@ proc serve*(
                    [$self.settings.port, self.settings.appName])
 
   var jes = self
+  let domain = block:
+    if self.settings.bindAddr != "":
+      let ip = self.settings.bindAddr.parseIpAddress()
+      if ip.family == IPv4:
+        AF_INET
+      else:
+        AF_INET6
+    else:
+      AF_INET
   when useHttpBeast:
     run(
       proc (req: httpbeast.Request): Future[void] =
-         {.gcsafe.}:
+        {.gcsafe.}:
           result = handleRequest(jes, req),
-      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, self.settings.numThreads)
+      httpbeast.initSettings(self.settings.port, self.settings.bindAddr, self.settings.numThreads, startup = self.settings.startup, domain = domain)
     )
   else:
     self.httpServer = newAsyncHttpServer(reusePort=self.settings.reusePort, maxBody=self.settings.maxBody)
@@ -537,7 +554,7 @@ proc serve*(
       self.settings.port,
       proc (req: asynchttpserver.Request): Future[void] {.gcsafe, closure.} =
         result = handleRequest(jes, req),
-      self.settings.bindAddr)
+      self.settings.bindAddr, domain = domain)
     if not self.settings.futureErrorHandler.isNil:
       serveFut.callback = self.settings.futureErrorHandler
     else:
