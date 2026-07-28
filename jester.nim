@@ -1272,6 +1272,8 @@ proc routesEx(name: string, body: NimNode): NimNode =
 
   var ofBranchGet = newNimNode(nnkOfBranch)
   ofBranchGet.add newIdentNode("HttpGet")
+  when declared(HttpQuery):
+    ofBranchGet.add newIdentNode("HttpQuery")
   ofBranchGet.add caseStmtGetBody
   caseStmt.add ofBranchGet
 
