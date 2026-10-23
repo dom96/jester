@@ -11,9 +11,8 @@ skipDirs = @["tests"]
 # Deps
 
 requires "nim >= 1.0.0"
-
-when not defined(windows):
-  requires "httpbeast >= 0.4.0"
+requires "regex >= 0.21.0"
+requires "httpbeast >= 0.4.0"
 
 task test, "Runs the test suite.":
   exec "nimble install -y asynctools@#0e6bdc3ed5bae8c7cc9"

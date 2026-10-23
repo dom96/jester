@@ -1,6 +1,12 @@
-import uri, cgi, tables, logging, strutils, re, options
+import uri, cgi, tables, logging, strutils, options
+
+import regex
 
 import jester/private/utils
+
+# Maximum number of capture groups stored for regex routes; mirrors std/re's
+# limit, which this module previously pulled in (and with it, PCRE1).
+const MaxSubpatterns* = 20
 
 when useHttpBeast:
   import httpbeast except Settings
@@ -196,3 +202,20 @@ proc setPatternParams*(req: var Request, p: Table[string, string]) =
 
 proc setReMatches*(req: var Request, r: array[MaxSubpatterns, string]) =
   req.reMatches = r
+
+proc findRe*(s: string, pattern: Regex2,
+             matches: var array[MaxSubpatterns, string]): int =
+  ## std/re-compatible ``find`` backed by nitely regex: returns the start
+  ## index of the first match or -1, and fills ``matches`` with the capture
+  ## group texts (group 1 ends up in ``matches[0]``, and so on).
+  var m: RegexMatch2
+  if find(s, pattern, m):
+    result = m.boundaries.a
+    var i = 0
+    while i < m.groupsCount and i < MaxSubpatterns:
+      let sl = m.group(i)
+      if sl.a <= sl.b:
+        matches[i] = s[sl]
+      inc i
+  else:
+    result = -1

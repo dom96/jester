@@ -1,6 +1,6 @@
 # Copyright (C) 2015 Dominik Picheta
 # MIT License - Look at license.txt for details.
-import net, strtabs, re, tables, os, strutils, uri,
+import net, strtabs, regex, tables, os, strutils, uri,
        times, mimetypes, asyncnet, asyncdispatch, macros, md5,
        logging, httpcore, asyncfile, macrocache, json, options,
        strformat
@@ -889,13 +889,13 @@ proc createRegexPattern(
   routeNode, reMatchesSym, patternMatchSym: NimNode,
   pathPrefix: string
 ): NimNode {.compileTime.} =
-  # -> let <patternMatchSym> = find(request.pathInfo, <pattern>, <reMatches>)
+  # -> let <patternMatchSym> = findRe(request.pathInfo, <pattern>, <reMatches>)
   var strNode = routeNode[1].copyNimTree()
   strNode[1].strVal = escapeRegex(pathPrefix) & strNode[1].strVal
   return newLetStmt(
     patternMatchSym,
     newCall(
-      bindSym"find",
+      bindSym"findRe",
       parseExpr("request.pathInfo"),
       strNode,
       reMatchesSym
@@ -913,7 +913,7 @@ proc determinePatternType(pattern: NimNode): MatchType {.compileTime.} =
   of nnkCallStrLit:
     expectKind(pattern[0], nnkIdent)
     case ($pattern[0]).normalize
-    of "re": return MRegex
+    of "re2": return MRegex
     else:
       macros.error("Invalid pattern type: " & $pattern[0])
   else:
