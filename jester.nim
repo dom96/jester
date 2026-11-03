@@ -327,8 +327,17 @@ proc handleFileRequest(
 
   # Verify that this isn't outside our static dir.
   var status = Http400
-  let pathDir = path.splitFile.dir & (if path.splitFile.dir[^1] == DirSep: "" else: $DirSep)
-  let staticDir = jes.settings.staticDir & (if jes.settings.staticDir[^1] == DirSep: "" else: $DirSep)
+  # Normalize both sides before comparing. `path` above is built with `/`
+  # (joinPath), which strips a leading "./" from the static dir, while
+  # `settings.staticDir` keeps it verbatim. Without this, a relative
+  # staticDir such as "./public" never matches the request path and every
+  # static file request is rejected with 400 (#292).
+  let pathDirN = normalizedPath(path.splitFile.dir)
+  let pathDir = pathDirN &
+    (if pathDirN.len > 0 and pathDirN[^1] == DirSep: "" else: $DirSep)
+  let staticDirN = normalizedPath(jes.settings.staticDir)
+  let staticDir = staticDirN &
+    (if staticDirN.len > 0 and staticDirN[^1] == DirSep: "" else: $DirSep)
   if pathDir.startsWith(staticDir):
     if existsDir(path):
       status = await sendStaticIfExists(

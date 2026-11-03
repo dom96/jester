@@ -260,6 +260,29 @@ proc issue150(useStdLib: bool) =
       check resp.code == Http500
       check (waitFor resp.body).startsWith("Something bad happened")
 
+proc issue292(useStdLib: bool) =
+  waitFor startServer("issue292.nim", useStdLib)
+  var client = newAsyncHttpClient(maxRedirects = 0)
+
+  suite "issue292 useStdLib=" & $useStdLib:
+    test "can get root":
+      # If this fails then `issue292` is likely not running.
+      let resp = waitFor client.get(address)
+      check resp.code == Http200
+
+    test "relative staticDir './tests/public' serves static files":
+      let resp = waitFor client.get(address & "/root/test_file.txt")
+      check resp.code == Http200
+      check (waitFor resp.body) == "Hello World!"
+
+    test "missing file inside static dir is a 404, not a 400":
+      let resp = waitFor client.get(address & "/root/missing.css")
+      check resp.code == Http404
+
+    test "path outside static dir is still rejected":
+      let resp = waitFor client.get(address & "/../tests/tester.nim")
+      check resp.code == Http400
+
 proc customRouterTest(useStdLib: bool) =
   waitFor startServer("customRouter.nim", useStdLib)
   var client = newAsyncHttpClient(maxRedirects = 0)
@@ -286,6 +309,9 @@ when isMainModule:
     issue150(useStdLib=true)
     customRouterTest(useStdLib=false)
     customRouterTest(useStdLib=true)
+    # The HttpBeast backend currently crashes on startup with recent Nim
+    # versions (#333), so this regression test runs on the std backend only.
+    issue292(useStdLib=true)
 
     # Verify that Nim in Action Tweeter still compiles.
     test "Nim in Action - Tweeter":
